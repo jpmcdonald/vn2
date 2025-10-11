@@ -20,6 +20,12 @@ from vn2.uncertainty import (
     make_sip_from_uniform_threshold,
     sip_meta_df,
 )
+from vn2.forecast.imputation_pipeline import (
+    create_imputed_training_data,
+    compute_imputation_summary,
+    save_imputation_artifacts,
+)
+from vn2.uncertainty.stockout_imputation import impute_all_stockouts
 
 
 def load_config(path: str) -> dict:
@@ -223,6 +229,81 @@ def cmd_slurp_demo(args):
         rprint(f"\n[green]✓ Wrote SLURP XML -> {args.out}[/green]")
 
 
+def cmd_impute_stockouts(args):
+    """Impute stockout-censored demand using profile-based SIP replacement"""
+    cfg = load_config(args.config)
+    
+    # Determine paths
+    processed_dir = args.processed if args.processed else cfg['paths']['processed']
+    
+    rprint("[bold blue]🔬 Imputing stockout-censored demand...[/bold blue]")
+    
+    # Load data
+    demand_path = Path(processed_dir) / 'demand_long.parquet'
+    surd_path = Path(processed_dir) / 'surd_transforms.parquet'
+    
+    if not demand_path.exists():
+        rprint(f"[bold red]Error: {demand_path} not found. Run EDA notebook first.[/bold red]")
+        return
+    
+    if not surd_path.exists():
+        rprint(f"[bold yellow]Warning: {surd_path} not found. Using default 'log' transform.[/bold yellow]")
+        surd_transforms = pd.DataFrame()
+    else:
+        surd_transforms = pd.read_parquet(surd_path)
+        if 'Store' in surd_transforms.columns and 'Product' in surd_transforms.columns:
+            surd_transforms = surd_transforms.set_index(['Store', 'Product'])
+    
+    df = pd.read_parquet(demand_path)
+    
+    # Get quantile levels from config
+    q_levels = np.array(cfg.get('sip', {}).get('quantiles', 
+                                                [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 
+                                                 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]))
+    
+    rprint(f"📊 Data: {len(df):,} observations")
+    rprint(f"   Stockouts: {(~df['in_stock']).sum():,} ({(~df['in_stock']).mean()*100:.1f}%)")
+    rprint(f"   Quantile levels: {len(q_levels)}")
+    rprint(f"   Neighbors per imputation: {args.n_neighbors}")
+    
+    # Create imputed training data
+    df_imputed = create_imputed_training_data(
+        df, surd_transforms, q_levels, 
+        n_neighbors=args.n_neighbors, verbose=True
+    )
+    
+    # Compute imputed SIPs separately for saving
+    rprint("\n[cyan]Generating full SIP library for stockout weeks...[/cyan]")
+    imputed_sips = impute_all_stockouts(
+        df, surd_transforms, q_levels,
+        n_neighbors=args.n_neighbors, verbose=False
+    )
+    
+    # Summary
+    rprint("\n[bold green]📈 Imputation Summary[/bold green]")
+    summary = compute_imputation_summary(df, df_imputed)
+    
+    for _, row in summary.iterrows():
+        metric = row['metric']
+        value = row['value']
+        if 'pct' in metric:
+            rprint(f"   {metric}: {value:.1f}%")
+        elif 'lift' in metric or 'mean' in metric or 'median' in metric:
+            rprint(f"   {metric}: {value:.2f}")
+        else:
+            rprint(f"   {metric}: {value:,.0f}")
+    
+    # Save artifacts
+    rprint("\n[cyan]💾 Saving artifacts...[/cyan]")
+    save_imputation_artifacts(
+        df_imputed, imputed_sips, summary, processed_dir
+    )
+    
+    rprint("\n[bold green]✅ Stockout imputation complete![/bold green]")
+    rprint(f"   Use [bold]{processed_dir}/demand_imputed.parquet[/bold] for model training")
+    rprint(f"   Full SIPs saved to [bold]{processed_dir}/imputed_sips.parquet[/bold]")
+
+
 # ---- Main CLI ----
 
 def main():
@@ -274,6 +355,13 @@ def main():
     g = sp.add_parser("slurp-demo", help="Demonstrate SIP/SLURP")
     g.add_argument("--out", help="Output XML file")
     g.set_defaults(func=cmd_slurp_demo)
+    
+    # impute (NEW)
+    g = sp.add_parser("impute", help="Impute stockout-censored demand")
+    g.add_argument("--config", default="configs/uncertainty.yaml", help="Config file")
+    g.add_argument("--processed", help="Processed data directory (overrides config)")
+    g.add_argument("--n-neighbors", type=int, default=20, help="Number of neighbor profiles")
+    g.set_defaults(func=cmd_impute_stockouts)
     
     args = p.parse_args()
     args.func(args)
