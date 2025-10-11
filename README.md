@@ -16,6 +16,12 @@ This repository implements a novel approach to inventory planning that:
 # Setup environment
 ./activate.sh
 
+# Run EDA notebook first
+jupyter notebook notebooks/02_comprehensive_time_series_eda.ipynb
+
+# Impute stockout-censored demand
+./go impute --config configs/uncertainty.yaml --n-neighbors 20
+
 # Ingest data
 ./go ingest --raw data/raw --out data/interim
 
@@ -65,10 +71,10 @@ Translated from R implementations in `docs/SIPS_SLURPS/`. A SLURP preserves corr
 Traditional methods optimize E[f(X)] ≈ f(E[X]) using point forecasts. Our approach computes E[cost] via Monte Carlo over the full predictive distribution, preserving nonlinear interactions between uncertainty and costs.
 
 ### Stock-out Imputation
-When observed sales = stock, we impute true demand using E[D | D ≥ stock] computed via trapezoidal integration over the quantile function Q(p).
+Profile-based **full SIP replacement** for censored demand. Instead of point imputation, we reconstruct entire quantile functions by splicing observed data below stock with neighbor tails above. Works in variance-stabilized transform space (log/sqrt/cbrt) for stability. See [docs/STOCKOUT_IMPUTATION.md](docs/STOCKOUT_IMPUTATION.md).
 
 ### SURD Analysis
-Systematic Unsupervised Representation Discovery for EDA. Reference: [ALD-Lab/SURD](https://github.com/ALD-Lab/SURD)
+Systematic Unsupervised Representation Discovery for variance stabilization and feature importance. Discovers optimal transforms per SKU to tighten prediction intervals. Reference: [ALD-Lab/SURD](https://github.com/ALD-Lab/SURD)
 
 ## Competition Details
 
@@ -95,6 +101,7 @@ ruff check src/ test/
 ## CLI Commands
 
 - `go ingest` - Ingest and clean raw data
+- `go impute` - **Impute stockout-censored demand** (run after EDA)
 - `go simulate` - Run simulation with base-stock policy
 - `go optimize-mc` - Monte Carlo optimization over SIP samples
 - `go submit` - Build submission file
