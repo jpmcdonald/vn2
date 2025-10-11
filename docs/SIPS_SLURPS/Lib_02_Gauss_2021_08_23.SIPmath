@@ -1,0 +1,186 @@
+{
+    "name": "Gaussian Copula Development Time Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-07-03",
+    "version": "0",
+    "provenance": "SLS 4-23-21",
+    "globalVariables": [
+        {
+            "name": "correlationMatrixValue",
+            "value": {
+                "columns": ["Accounts", "Products", "Orders", "Fulfillment"],
+                "rows": ["Accounts", "Products", "Orders", "Fulfillment"],
+                "matrix": [
+                    { "row": "Accounts"   , "col": "Accounts"   , "value": 1.00 },
+                    { "row": "Accounts"   , "col": "Products"   , "value": 0.00 },
+                    { "row": "Accounts"   , "col": "Orders"     , "value": 0.00 },
+                    { "row": "Accounts"   , "col": "Fulfillment", "value": 0.00 },
+                    { "row": "Products"   , "col": "Products"   , "value": 1.00 },
+                    { "row": "Products"   , "col": "Orders"     , "value": 0.00 },
+                    { "row": "Products"   , "col": "Fulfillment", "value": 0.75 },
+                    { "row": "Orders"     , "col": "Orders"     , "value": 1.00 },
+                    { "row": "Orders"     , "col": "Fulfillment", "value": 0.00 },
+                    { "row": "Fulfillment", "col": "Fulfillment", "value": 1.00 }
+                ]
+            }
+        }
+    ],
+    "U01": {
+        "rng": [
+            {
+                "name": "HDR4",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 4, "seed3": 0, "seed4": 0}
+            },
+            {
+                "name": "HDR5",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 5, "seed3": 0, "seed4": 0}
+            },
+            {
+                "name": "HDR6",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 6, "seed3": 0, "seed4": 0}
+            },
+            {
+                "name": "HDR7",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 7, "seed3": 0, "seed4": 0}
+            },
+            {
+                "name": "HDR8",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 8, "seed3": 0, "seed4": 0}
+            }
+        ],
+        "copula": [
+            {
+                "name": "Gaussian",
+                "function": "GaussianCopula",
+                "arguments": {
+                    "correlationMatrix": {"type": "globalVariables", "value": "correlationMatrixValue"},
+                    "rng": ["HDR4", "HDR5", "HDR6", "HDR7"]
+                },
+                "copulaLayer": ["cl1", "cl2", "cl3", "cl4"]
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "Accounts",
+            "ref": {"source": "copula", "name": "Gaussian", "copulaLayer": "cl1"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [9.872717622, 1.678242357, 2.54967822, 3.535388319, -13.40905029]
+            },
+            "metadata": {
+                "min": 0,
+                "mean": 10,
+                "Trial1": 5.91064824323855,
+                "Trial2": 3.99951401423695,
+                "Trial3": 3.61593085127843,
+                "max": 38.59529574,
+                "density": [
+                    0.004109283, 0.042110568, 0.091705010, 0.110006024, 0.122020569, 0.134235996, 
+                    0.147896307, 0.161461431, 0.167672333, 0.152978674, 0.117263845, 0.080513010, 
+                    0.053583880, 0.035823821, 0.024233148, 0.016480777, 0.011221878, 0.008189092, 
+                    0.005478863, 0.004659543, 0.003840222, 0.003020901, 0.002201580, 0.001382259, 
+                    0.000562938
+                ]
+            }
+        },
+        {
+            "name": "Products",
+            "ref": {"source": "copula", "name": "Gaussian", "copulaLayer": "cl2"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [10.28359942, 1.433048092, 1.737463084, 3.927285373, -13.45782811]
+            },
+            "metadata": {
+                "min": 0,
+                "mean": 10,
+                "Trial1": 4.81850430027545,
+                "Trial2": 16.264999616127,
+                "Trial3": 9.21182344011462,
+                "max": 33.17541333,
+                "density": [
+                    0.002930180, 0.018377025, 0.043616484, 0.071502559, 0.088976553, 0.101891981, 
+                    0.114180833, 0.127937682, 0.144722341, 0.165708773, 0.189118409, 0.198621052, 
+                    0.162260460, 0.103661376, 0.062148829, 0.037849594, 0.023736807, 0.015023748, 
+                    0.010251008, 0.006852863, 0.005627723, 0.004402584, 0.003177444, 0.001952305, 
+                    0.000727165
+                ]
+            }
+        },
+        {
+            "name": "Orders",
+            "ref": {"source": "copula", "name": "Gaussian", "copulaLayer": "cl3"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [8.526657058, 4.390832871, 7.645594813, -11.34424622, -27.90451926]
+            },
+            "metadata": {
+                "min": 0.677003797,
+                "mean": 10,
+                "Trial1": 8.84993813887317,
+                "Trial2": 5.73877017205265,
+                "Trial3": 7.90854997496018,
+                "max": 97.99099759,
+                "density": [
+                    0.003085439, 0.163024200, 0.244463356, 0.195975175, 0.078683936, 0.042542229, 
+                    0.026881900, 0.018374301, 0.013142720, 0.009717621, 0.007312950, 0.005589352, 
+                    0.004199015, 0.003404700, 0.002639063, 0.001993546, 0.001794539, 0.001595532, 
+                    0.001396525, 0.001197518, 0.000998511, 0.000799504, 0.000600498, 0.000401491, 
+                    0.000202484
+                ]
+            }
+        },
+        {
+            "name": "Fulfillment",
+            "ref": {"source": "copula", "name": "Gaussian", "copulaLayer": "cl4"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [8.93145879, 3.863446641, 6.494528709, -8.804090192, -25.50440804]
+            },
+            "metadata": {
+                "min": 0,
+                "mean": 10,
+                "Trial1": 6.7522436646553,
+                "Trial2": 11.4933053690752,
+                "Trial3": 5.97047076730257,
+                "max": 81.7851472,
+                "density": [
+                    0.002767633, 0.072390279, 0.167524386, 0.233154649, 0.180694181, 0.080367009, 
+                    0.044352128, 0.028071658, 0.019103988, 0.013629953, 0.009891279, 0.007367607, 
+                    0.005657935, 0.004324130, 0.003407833, 0.002491536, 0.002132153, 0.001894541, 
+                    0.001656929, 0.001419317, 0.001181705, 0.000944093, 0.000706481, 0.000468870, 
+                    0.000231258
+                ]
+            }
+        },
+        {
+            "name": "Marketing",
+            "ref": {"source": "rng", "name": "HDR8"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [9.872717622, 1.678242357, 2.54967822, 3.535388319, -13.40905029]
+            },
+            "metadata": {
+                "min": 0,
+                "mean": 10,
+                "Trial1": 4.97377773402723,
+                "Trial2": 5.26303264347232,
+                "Trial3": 11.3668582781926,
+                "max": 38.59529574,
+                "density": [
+                    0.004109283, 0.042110568, 0.091705010, 0.110006024, 0.122020569, 0.134235996, 
+                    0.147896307, 0.161461431, 0.167672333, 0.152978674, 0.117263845, 0.080513010, 
+                    0.053583880, 0.035823821, 0.024233148, 0.016480777, 0.011221878, 0.008189092, 
+                    0.005478863, 0.004659543, 0.003840222, 0.003020901, 0.002201580, 0.001382259, 
+                    0.000562938
+                ]
+            }
+        }
+    ]
+}

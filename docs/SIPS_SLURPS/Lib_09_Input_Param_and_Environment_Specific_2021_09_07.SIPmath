@@ -1,0 +1,159 @@
+{
+    "name": "Basic Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-07-03",
+    "provenance": "SLS",
+    "comments": [
+        {
+            "name": "first3Trials",
+            "comments": "Variable 2 has a user entered Seed3. For this test Seed =1",
+            "value": [
+                "Variable1",
+                2.894698,
+                0.865379,
+                1.8223,
+                "Variable2_seed3_param",
+                11.091734,
+                12.036073,
+                7.760296,
+                "StandardNormal",
+                -0.07923,
+                -1.046566,
+                0.081651
+            ]
+        }
+    ],
+    "U01": {
+        "rng": [
+            {
+                "name": "HDR1",
+                "function": "HDR_2_0",
+                "arguments": {
+                    "counter": "PM_Index",
+                    "entity": 9039920,
+                    "varId": 1,
+                    "seed3": 0,
+                    "seed4": 0
+                }
+            },
+            {
+                "name": "HDR2",
+                "function": "HDR_2_0",
+                "arguments": {
+                    "counter": "PM_Index",
+                    "entity": 9039920,
+                    "varId": 2,
+                    "seed3": {
+                        "type": "parameter",
+                        "name": "User-entered Seed3"
+                    },
+                    "seed4": 0
+                }
+            },
+            {
+                "name": "HDR3",
+                "function": "HDR_2_0",
+                "arguments": {
+                    "counter": "PM_Index",
+                    "entity": 9039920,
+                    "varId": 3,
+                    "seed3": 0,
+                    "seed4": 0
+                }
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "Variable1",
+            "ref": {
+                "source": "rng",
+                "name": "HDR1"
+            },
+            "function": "Metalog_1_0",
+            "arguments": {
+                "lowerBound": 0,
+                "upperBound": 5,
+                "aCoefficients": [
+                    -0.44366710027334577,
+                    0.31428823046335125,
+                    -0.4602599042847327,
+                    0.5255629124333913,
+                    2.1156523838083356
+                ]
+            }
+        },
+        {
+            "name": "Variable2_seed3_param",
+            "ref": {
+                "source": "rng",
+                "name": "HDR2"
+            },
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [
+                    10.28359942,
+                    1.433048092,
+                    1.737463084,
+                    3.927285373,
+                    -13.45782811
+                ]
+            }
+        },
+        {
+            "name": "StandardNormal",
+            "ref": {
+                "source": "rng",
+                "name": "HDR3"
+            },
+            "function": "Metalog_1_0",
+            "arguments": {
+                "aCoefficients": [
+                    -1.18721e-8,
+                    -108.7360185,
+                    0.000228037,
+                    437.4513354,
+                    -0.000910088,
+                    988.3027041,
+                    -3370.883493,
+                    -0.001941269,
+                    0.006475465,
+                    -2823.944368,
+                    7434.879183,
+                    0.004897097,
+                    -0.011367609,
+                    2456.743398,
+                    -3595.592826,
+                    -0.003114859
+                ]
+            }
+        },
+        {
+            "name": "StandardNormal",
+            "ref": {
+                "source": "rng",
+                "name": "HDR3"
+            },
+            "environment": "ExcelFrontline",
+            "function": "PsiNormal",
+            "arguments": {
+                "mean": 0,
+                "stdDev": 1
+            }
+        },
+        {
+            "name": "StandardNormal",
+            "ref": {
+                "source": "rng",
+                "name": "HDR3"
+            },
+            "environment": "ExcelPalisade",
+            "function": "RiskNormal",
+            "arguments": {
+                "mean": 0,
+                "stdDev": 1
+            }
+        }
+    ]
+}

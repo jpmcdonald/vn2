@@ -1,0 +1,86 @@
+{
+  "name": "genMetalog Library",
+  "objectType": "sipModel",
+  "libraryType": "SIPmath_3_0",
+  "dateCreated": "2021-07-03",
+  "provenance": "SLS",
+  "globalVariables": [
+    {
+      "name": "sumOfIidLognormals",
+      "value": [
+        {
+          "shapeValue": 1.1,
+          "numberOfIIDs": 1,
+          "aCoefficients": [
+             2.302605, -0.012263,  0.003631,  0.236955, -0.014925,  0.137107, -0.323127, 
+            -0.012196,  0.040094
+          ]
+        },
+        {
+          "shapeValue": 1.1,
+          "numberOfIIDs": 2,
+          "aCoefficients": [
+             2.997134, -0.005738,  0.006037,  0.155605, -0.024809,  0.086815, -0.197671, 
+            -0.020988,  0.065798
+          ]
+        },
+        {
+          "shapeValue": 1.1,
+          "numberofIIDs": 3,
+          "aCoefficients": [
+             3.403081, -0.007068, -0.001965,  0.137062,  0.007647,  0.079549, -0.191059, 
+             0.006260, -0.014339
+          ]
+        },
+        {
+          "shapeValue": 1.2,
+          "numberofIIDs": 1,
+          "aCoefficients": [
+             2.302623, -0.023458,  0.006946,  0.453277, -0.028551,  0.262276, -0.618120, 
+            -0.023329,  0.076697
+          ]
+        },
+        {
+          "shapeValue": 1.2,
+          "numberofIIDs": 2,
+          "aCoefficients": [
+             3.000814, -0.012044,  0.009722,  0.302727, -0.040367,  0.170339, -0.393583, 
+            -0.033614,  0.107979
+          ]
+        },
+        {
+          "shapeValue": 1.2,
+          "numberofIIDs": 3,
+          "aCoefficients": [
+             3.407988, -0.012641, -0.002373,  0.258786,  0.009286,  0.149144, -0.353578, 
+             0.007015, -0.013292
+          ]
+        }
+      ]
+    }
+  ],
+  "U01": {
+    "rng": [
+      {
+        "name": "HDR10",
+        "function": "HDR_2_0",
+        "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 10, "seed3": 0, "seed4": 0}
+      }
+    ]
+  },
+  "sips": [
+    {
+      "name": "TotalDamage",
+      "ref": {"source": "rng", "name": "HDR10"},
+      "function": "GeneralizedMetalog",
+      "arguments": {
+        "aCoefficients": {"type": "globalVariables", "value": "sumOfIidLognormals"},
+        "dims": [
+          { "type": "parameter", "name": "numberOfIIDs", "numericType": "integer" },
+          { "type": "parameter", "name": "shapeValue"  , "numericType": "float"   }
+        ],
+        "lowerBound": 0
+      }
+    }
+  ]
+}

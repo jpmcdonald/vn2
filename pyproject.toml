@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vn2"
+version = "0.1.0"
+description = "VN2 Inventory Planning Challenge - Supply Chain Optimization"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "JP McDonald"},
+]
+dependencies = [
+    "pandas>=2.2,<3",
+    "numpy>=1.26,<3",
+    "scipy>=1.11,<2",
+    "statsmodels>=0.14,<1",
+    "scikit-learn>=1.4,<2",
+    "pydantic>=2.6,<3",
+    "pyyaml>=6.0,<7",
+    "rich>=13.7,<14",
+    "mlflow>=2.14,<3",
+    "plotly>=5.22,<6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "black>=24.0,<25",
+    "ruff>=0.3,<1",
+]
+
+[project.scripts]
+go = "vn2.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+

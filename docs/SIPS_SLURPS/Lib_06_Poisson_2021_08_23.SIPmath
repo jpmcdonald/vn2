@@ -1,0 +1,45 @@
+{
+    "name": "Discrete Poisson Variable With Lookup Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-07-03",
+    "version": "0",
+    "provenance": "SLS 8-3-21",
+    "U01": {
+        "rng": [
+            {
+                "name": "HDR9",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 9039920, "varId": 9, "seed3": 0, "seed4": 0}
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "Poisson",
+            "ref": {"source": "rng", "name": "HDR9"},
+            "function": "Lookup_Table",
+            "metadata": {
+                "Lambda": 0.5,
+                "Trial6": 1,
+                "Trial23": 2,
+                "Trial299": 3,
+                "histogram": [0.606531, 0.303265, 0.075816, 0.012636, 0.00158, 0.000158]
+            },
+            "arguments": {
+                "value": [
+                    [ 0.606530660, 0 ],
+                    [ 0.909795990, 1 ],
+                    [ 0.985612322, 2 ],
+                    [ 0.998248377, 3 ],
+                    [ 0.999827884, 4 ],
+                    [ 0.999985835, 5 ],
+                    [ 0.999998998, 6 ],
+                    [ 0.999999938, 7 ],
+                    [ 0.999999997, 8 ],
+                    [ 1.000000000, 9 ]
+                ]
+            }
+        }
+    ]
+}

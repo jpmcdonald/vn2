@@ -1,0 +1,82 @@
+{
+    "name": "Happy Fish Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-20-03",
+    "version": "0",
+    "provenance": "DGE SLS",
+    "PM_Trials": 1000,
+    "U01": {
+        "rng": [
+            {
+                "name": "indexRng",
+                "function": "Index",
+                "arguments": {"counter": "PM_Index"}
+            }
+        ],
+        "copula": [
+            {
+                "name": "HappyCopulaLib",
+                "function": "SIP_Array",
+                "arguments": {
+                    "type": "csv",
+                    "url": "https://www.probabilitymanagement.org/s/HappyCopulaSimple.csv",
+                    "value": ["HapCopula", "PyCopula"]
+                },
+                "copulaLayer": ["HapCopula", "PyCopula"]
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "Steelhead1",
+            "ref": {"source": "copula", "name": "HappyCopulaLib", "copulaLayer": "HapCopula"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "lowerBound": 2,
+                "aCoefficients": [
+                      2.058955983,  -2.281157829,  -1.513012712,  10.042285460,   4.898678377, 
+                     13.055783020, -32.701452370,   5.303664167, -15.338680840, -13.912132650
+                ]
+            },
+            "metadata": {
+                "Average": 10.1244918,
+                "Trial1": 10.4413037681972,
+                "Trial2": 9.96709008630459,
+                "Trial3": 10.2471838687802,
+                "density": [
+                    0.000000000, 0.009411357, 0.064517460, 0.075300228, 0.070537529, 0.078305788, 
+                    0.109189176, 0.139477609, 0.088129388, 0.059900505, 0.042843555, 0.029680524, 
+                    0.020151553, 0.013942071, 0.009942102, 0.007356791, 0.005664696, 0.004366737, 
+                    0.003521197, 0.002675658, 0.002144864, 0.001687803, 0.001303557, 0.000973593, 
+                    0.000657581
+                ]
+            }
+        },
+        {
+            "name": "Steelhead2",
+            "ref": {"source": "copula", "name": "HappyCopulaLib", "copulaLayer": "PyCopula"},
+            "function": "Metalog_1_0",
+            "arguments": {
+                "lowerBound": 2,
+                "aCoefficients": [
+                      2.058955983,  -2.281157829,  -1.513012712,  10.042285460,   4.898678377, 
+                     13.055783020, -32.701452370,   5.303664167, -15.338680840, -13.912132650
+                ]
+            },
+            "metadata": {
+                "Average": 10.1244918,
+                "Trial1": 11.2543057323368,
+                "Trial2": 26.0663095769058,
+                "Trial3": 3.91094809755693,
+                "density": [
+                    0.000000000, 0.009411357, 0.064517460, 0.075300228, 0.070537529, 0.078305788, 
+                    0.109189176, 0.139477609, 0.088129388, 0.059900505, 0.042843555, 0.029680524, 
+                    0.020151553, 0.013942071, 0.009942102, 0.007356791, 0.005664696, 0.004366737, 
+                    0.003521197, 0.002675658, 0.002144864, 0.001687803, 0.001303557, 0.000973593, 
+                    0.000657581
+                ]
+            }
+        }
+    ]
+}

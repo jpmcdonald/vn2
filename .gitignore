@@ -1,0 +1,28 @@
+# venv and OS
+V2env/
+.DS_Store
+
+# python
+__pycache__/
+*.py[cod]
+*.ipynb_checkpoints/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# project artifacts
+scratch/
+reports/
+data/interim/
+data/processed/
+data/submissions/
+runs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+

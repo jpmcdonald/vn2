@@ -1,0 +1,35 @@
+{
+    "name": "Single Variable Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-08-17",
+    "provenance": "SLS",
+    "U01": {
+        "rng": [
+            {
+                "name": "HDR101",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 1, "varId": 1, "seed3": 2, "seed4": 2}
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "Unbounded",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {
+                "Average": -0.508109215629409,
+                "Trial1": 0.108155020321771,
+                "Trial2": 0.422196005333154,
+                "Trial3": -0.0278776878964113
+            },
+            "arguments": {
+                "aCoefficients": [
+                    -0.44366710027334577,  0.31428823046335125, -0.46025990428473268, 
+                     0.52556291243339126,  2.11565238380833565
+                ]
+            }
+        }
+    ]
+}

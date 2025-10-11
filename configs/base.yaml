@@ -1,0 +1,22 @@
+paths:
+  root: /Users/jpmcdonald/Code/vn2
+  raw: /Users/jpmcdonald/Code/vn2/data/raw
+  interim: /Users/jpmcdonald/Code/vn2/data/interim
+  processed: /Users/jpmcdonald/Code/vn2/data/processed
+  submissions: /Users/jpmcdonald/Code/vn2/data/submissions
+  scratch: /Users/jpmcdonald/Code/vn2/scratch
+  reports: /Users/jpmcdonald/Code/vn2/reports
+
+simulation:
+  lead_weeks: 2         # order at end of W, receive start of W+3
+  review_weeks: 1
+  costs:
+    holding: 0.2        # € per unit per week
+    shortage: 1.0       # € per unit of lost sales
+
+policy_defaults:
+  service_level: 0.8333  # 1/(1+0.2) = newsvendor critical fractile
+  forecast:
+    method: naive_seasonal
+    window_weeks: 13
+

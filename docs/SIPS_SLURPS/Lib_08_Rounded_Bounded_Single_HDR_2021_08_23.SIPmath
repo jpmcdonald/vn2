@@ -1,0 +1,146 @@
+{
+    "name": "Bounded Rounded Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-08-17",
+    "provenance": "SLS",
+    "U01": {
+        "rng": [
+            {
+                "name": "HDR101",
+                "function": "HDR_2_0",
+                "arguments": {"counter": "PM_Index", "entity": 1, "varId": 1, "seed3": 2, "seed4": 2}
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "Unbounded",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {
+                "Average": -0.508109215629409,
+                "Trial1": 0.108155020321771,
+                "Trial2": 0.422196005333154,
+                "Trial3": -0.0278776878964113
+            },
+            "arguments": {
+                "aCoefficients": [
+                    -0.44366710027334577,  0.31428823046335125, -0.46025990428473268, 
+                     0.52556291243339126,  2.11565238380833565
+                ]
+            }
+        },
+        {
+            "name": "LowerBounded",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {
+                "Average": 0.761476070271115,
+                "Trial1": 1.11422045881313,
+                "Trial2": 1.52530746378309,
+                "Trial3": 0.972507308941779
+            },
+            "arguments": {
+                "lowerBound": 0,
+                "aCoefficients": [
+                    -0.44366710027334577,  0.31428823046335125, -0.46025990428473268, 
+                     0.52556291243339126,  2.11565238380833565
+                ]
+            }
+        },
+        {
+            "name": "UpperBounded",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {
+                "Average": 2.65292268755144,
+                "Trial1": 4.10251154330337,
+                "Trial2": 4.34439447538021,
+                "Trial3": 3.97173009312584
+            },
+            "arguments": {
+                "upperBound": 5,
+                "aCoefficients": [
+                    -0.44366710027334577,  0.31428823046335125, -0.46025990428473268, 
+                     0.52556291243339126,  2.11565238380833565
+                ]
+            }
+        },
+        {
+            "name": "Bounded",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {
+                "Average": 1.95676830432083,
+                "Trial1": 2.63506214351606,
+                "Trial2": 3.02004307526592,
+                "Trial3": 2.46515514678502
+            },
+            "arguments": {
+                "lowerBound": 0,
+                "upperBound": 5,
+                "aCoefficients": [
+                    -0.44366710027334577,  0.31428823046335125, -0.46025990428473268, 
+                     0.52556291243339126,  2.11565238380833565
+                ]
+            }
+        },
+        {
+            "name": "Unrounded",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {
+                "Average": -50.8109215629409,
+                "Trial1": 10.8155020321771,
+                "Trial2": 42.2196005333154,
+                "Trial3": -2.78776878964113
+            },
+            "arguments": {
+                "aCoefficients": [
+                    -44.366710027334577,  31.428823046335125, -46.025990428473271,  52.556291243339125, 
+                    211.565238380833563
+                ]
+            }
+        },
+        {
+            "name": "RoundNearest",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {"Average": -50.808, "Trial1": 11, "Trial2": 42, "Trial3": -3},
+            "rounding": "nearest",
+            "arguments": {
+                "aCoefficients": [
+                    -44.366710027334577,  31.428823046335125, -46.025990428473271,  52.556291243339125, 
+                    211.565238380833563
+                ]
+            }
+        },
+        {
+            "name": "RoundUp",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "metadata": {"Average": -51.068, "Trial1": 11, "Trial2": 43, "Trial3": -3},
+            "rounding": "up",
+            "arguments": {
+                "aCoefficients": [
+                    -44.366710027334577,  31.428823046335125, -46.025990428473271,  52.556291243339125, 
+                    211.565238380833563
+                ]
+            }
+        },
+        {
+            "name": "RoundDown",
+            "ref": {"source": "rng", "name": "HDR101"},
+            "function": "Metalog_1_0",
+            "rounding": "down",
+            "metadata": {"Average": -50.57, "Trial1": 10, "Trial2": 42, "Trial3": -2},
+            "arguments": {
+                "aCoefficients": [
+                    -44.366710027334577,  31.428823046335125, -46.025990428473271,  52.556291243339125, 
+                    211.565238380833563
+                ]
+            }
+        }
+    ]
+}

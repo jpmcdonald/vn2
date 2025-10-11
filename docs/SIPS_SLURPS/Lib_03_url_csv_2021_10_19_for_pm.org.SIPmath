@@ -1,0 +1,43 @@
+{
+    "name": "Indirect Excel Range Name Library",
+    "objectType": "sipModel",
+    "libraryType": "SIPmath_3_0",
+    "dateCreated": "2021-07-14",
+    "version": "0",
+    "provenance": "SLS",
+    "PM_Trials": 1000,
+    "U01": {
+        "rng": [
+            {
+                "name": "indexRng",
+                "function": "Index",
+                "arguments": {"counter": "PM_Index"}
+            }
+        ]
+    },
+    "sips": [
+        {
+            "name": "ProductDemand",
+            "function": "SIP_Array",
+            "ref": {"source": "rng", "name": "indexRng"},
+            "arguments": {
+                "type": "csv",
+                "url": "https://www.probabilitymanagement.org/s/DemandSimpleCsvLib.csv",
+                "value": "Demand"
+            },
+            "metadata": {
+                "Average": 100000,
+                "Trial1": 141994,
+                "Trial2": 75597,
+                "Trial3": 103047,
+                "density": [
+                    0.000133830, 0.000480271, 0.001542279, 0.004431848, 0.011395986, 0.026221889, 
+                    0.053990967, 0.099477139, 0.164010075, 0.241970725, 0.319448006, 0.377383228, 
+                    0.398942280, 0.377383228, 0.319448006, 0.241970725, 0.164010075, 0.099477139, 
+                    0.053990967, 0.026221889, 0.011395986, 0.004431848, 0.001542279, 0.000480271, 
+                    0.000133830
+                ]
+            }
+        }
+    ]
+}
