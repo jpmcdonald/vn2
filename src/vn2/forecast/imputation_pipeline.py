@@ -17,7 +17,8 @@ def create_imputed_training_data(
     surd_transforms: pd.DataFrame,
     q_levels: np.ndarray,
     n_neighbors: int = 20,
-    verbose: bool = True
+    verbose: bool = True,
+    n_jobs: int = -1
 ) -> pd.DataFrame:
     """
     Replace stockout observations with imputed demand for model training.
@@ -28,6 +29,7 @@ def create_imputed_training_data(
         q_levels: Quantile levels for SIP reconstruction
         n_neighbors: Number of neighbor profiles for matching
         verbose: Print progress
+        n_jobs: Number of parallel jobs (-1 = all cores)
         
     Returns:
         DataFrame with 'sales' column adjusted for stockouts
@@ -40,7 +42,8 @@ def create_imputed_training_data(
     # Impute all stockouts
     imputed_sips = impute_all_stockouts(
         df, surd_transforms, q_levels, 
-        n_neighbors=n_neighbors, verbose=verbose
+        n_neighbors=n_neighbors, verbose=verbose,
+        n_jobs=n_jobs
     )
     
     # Replace point estimates with median of imputed SIP

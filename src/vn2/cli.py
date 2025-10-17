@@ -26,6 +26,12 @@ from vn2.forecast.imputation_pipeline import (
     save_imputation_artifacts,
 )
 from vn2.uncertainty.stockout_imputation import impute_all_stockouts
+from vn2.forecast.pipeline import ForecastPipeline
+from vn2.forecast.models import (
+    CrostonForecaster,
+    SeasonalNaiveForecaster,
+    ForecastConfig
+)
 
 
 def load_config(path: str) -> dict:
@@ -267,16 +273,19 @@ def cmd_impute_stockouts(args):
     rprint(f"   Neighbors per imputation: {args.n_neighbors}")
     
     # Create imputed training data
+    rprint(f"🚀 Using {args.n_jobs if args.n_jobs > 0 else 'all'} CPU cores for parallel processing")
     df_imputed = create_imputed_training_data(
         df, surd_transforms, q_levels, 
-        n_neighbors=args.n_neighbors, verbose=True
+        n_neighbors=args.n_neighbors, verbose=True,
+        n_jobs=args.n_jobs
     )
     
     # Compute imputed SIPs separately for saving
     rprint("\n[cyan]Generating full SIP library for stockout weeks...[/cyan]")
     imputed_sips = impute_all_stockouts(
         df, surd_transforms, q_levels,
-        n_neighbors=args.n_neighbors, verbose=False
+        n_neighbors=args.n_neighbors, verbose=False,
+        n_jobs=args.n_jobs
     )
     
     # Summary
@@ -302,6 +311,106 @@ def cmd_impute_stockouts(args):
     rprint("\n[bold green]✅ Stockout imputation complete![/bold green]")
     rprint(f"   Use [bold]{processed_dir}/demand_imputed.parquet[/bold] for model training")
     rprint(f"   Full SIPs saved to [bold]{processed_dir}/imputed_sips.parquet[/bold]")
+
+
+def cmd_forecast(args):
+    """Train density forecast models with checkpoint/resume"""
+    import os
+    
+    # Set environment variables for Metal optimization
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    
+    cfg = load_config(args.config)
+    
+    rprint("[bold blue]📈 Starting forecast model training...[/bold blue]")
+    
+    # Load data
+    demand_path = Path(cfg['paths']['processed']) / 'demand_imputed.parquet'
+    master_path = Path(cfg['paths']['processed']) / 'master.parquet'
+    surd_path = Path(cfg['paths']['processed']) / 'surd_transforms.parquet'
+    
+    if not demand_path.exists():
+        rprint(f"[bold red]Error: {demand_path} not found. Run imputation first.[/bold red]")
+        return
+    
+    df = pd.read_parquet(demand_path)
+    master_df = pd.read_parquet(master_path) if master_path.exists() else None
+    surd_df = pd.read_parquet(surd_path) if surd_path.exists() else None
+    
+    rprint(f"📊 Data loaded:")
+    rprint(f"   Observations: {len(df):,}")
+    rprint(f"   SKUs: {len(df[['Store', 'Product']].drop_duplicates())}")
+    rprint(f"   Imputed: {df['imputed'].sum():,} ({df['imputed'].mean()*100:.1f}%)")
+    
+    # Setup quantiles
+    quantiles = np.array(cfg['quantiles'])
+    forecast_config = ForecastConfig(
+        quantiles=quantiles,
+        horizon=cfg['horizon'],
+        random_state=42
+    )
+    
+    # Model factories
+    def make_croston_classic():
+        return CrostonForecaster(forecast_config, variant='classic', alpha=0.1)
+    
+    def make_croston_sba():
+        return CrostonForecaster(forecast_config, variant='sba', alpha=0.1)
+    
+    def make_croston_tsb():
+        return CrostonForecaster(forecast_config, variant='tsb', alpha=0.1)
+    
+    def make_seasonal_naive():
+        return SeasonalNaiveForecaster(forecast_config, season_length=52)
+    
+    # Select models
+    if args.pilot:
+        models = {
+            'croston_classic': make_croston_classic,
+            'seasonal_naive': make_seasonal_naive,
+        }
+        rprint("\n[yellow]🧪 PILOT MODE: Using 2 fast models[/yellow]")
+    else:
+        models = {}
+        if cfg['models']['croston_classic']['enabled']:
+            models['croston_classic'] = make_croston_classic
+        if cfg['models']['croston_sba']['enabled']:
+            models['croston_sba'] = make_croston_sba
+        if cfg['models']['croston_tsb']['enabled']:
+            models['croston_tsb'] = make_croston_tsb
+        if cfg['models']['seasonal_naive']['enabled']:
+            models['seasonal_naive'] = make_seasonal_naive
+    
+    rprint(f"\n🤖 Models to train: {list(models.keys())}")
+    
+    # Pilot SKUs
+    pilot_skus = None
+    if args.pilot:
+        all_skus = df[['Store', 'Product']].drop_duplicates().values.tolist()
+        pilot_skus = [tuple(sku) for sku in all_skus[:cfg['pilot']['n_skus']]]
+        rprint(f"🧪 Pilot: Training on {len(pilot_skus)} SKUs")
+    
+    # Initialize pipeline
+    pipeline = ForecastPipeline(cfg)
+    
+    # Train
+    n_jobs = args.n_jobs if hasattr(args, 'n_jobs') else cfg['compute']['n_jobs']
+    rprint(f"\n⚙️  Parallel workers: {n_jobs}")
+    rprint(f"⏱️  Timeout per fit: {cfg['compute']['timeout_per_fit']}s")
+    rprint("\n[cyan]Starting training...[/cyan]\n")
+    
+    results_df = pipeline.train_all(
+        df,
+        models,
+        master_df=master_df,
+        n_jobs=n_jobs,
+        pilot_skus=pilot_skus
+    )
+    
+    rprint(f"\n[bold green]✅ Training complete![/bold green]")
+    rprint(f"   Results saved to: {cfg['paths']['results']}/training_results.parquet")
 
 
 # ---- Main CLI ----
@@ -356,12 +465,20 @@ def main():
     g.add_argument("--out", help="Output XML file")
     g.set_defaults(func=cmd_slurp_demo)
     
-    # impute (NEW)
+    # impute
     g = sp.add_parser("impute", help="Impute stockout-censored demand")
     g.add_argument("--config", default="configs/uncertainty.yaml", help="Config file")
     g.add_argument("--processed", help="Processed data directory (overrides config)")
     g.add_argument("--n-neighbors", type=int, default=20, help="Number of neighbor profiles")
+    g.add_argument("--n-jobs", type=int, default=-1, help="Number of parallel jobs (-1 = all cores)")
     g.set_defaults(func=cmd_impute_stockouts)
+    
+    # forecast (NEW)
+    g = sp.add_parser("forecast", help="Train density forecast models")
+    g.add_argument("--config", default="configs/forecast.yaml", help="Config file")
+    g.add_argument("--pilot", action="store_true", help="Run pilot test on subset of SKUs")
+    g.add_argument("--n-jobs", type=int, default=11, help="Number of parallel workers")
+    g.set_defaults(func=cmd_forecast)
     
     args = p.parse_args()
     args.func(args)

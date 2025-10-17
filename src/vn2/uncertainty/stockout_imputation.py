@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import pearsonr
 import warnings
+from joblib import Parallel, delayed
+import multiprocessing
 
 
 @dataclass
@@ -492,16 +494,54 @@ def impute_stockout_sip(
     return pd.Series(reconstructed_q, index=q_levels)
 
 
+def _impute_single_stockout(
+    row: pd.Series,
+    df: pd.DataFrame,
+    surd_transforms: pd.DataFrame,
+    q_levels: np.ndarray,
+    n_neighbors: int
+) -> Tuple[Tuple[int, int, int], Optional[pd.Series]]:
+    """
+    Helper function to impute a single stockout (for parallel execution).
+    
+    Returns:
+        Tuple of ((store, product, week), imputed_sip) or ((store, product, week), None) on failure
+    """
+    sku_id = (row['Store'], row['Product'])
+    week = row['week']
+    stock_level = row['sales']
+    
+    # Get transform for this SKU
+    try:
+        if sku_id in surd_transforms.index:
+            transform_name = surd_transforms.loc[sku_id, 'best_transform']
+        else:
+            transform_name = 'log'
+    except:
+        transform_name = 'log'
+    
+    # Impute
+    try:
+        sip = impute_stockout_sip(
+            sku_id, week, stock_level, q_levels, df,
+            transform_name, n_neighbors
+        )
+        return ((sku_id[0], sku_id[1], week), sip)
+    except Exception as e:
+        return ((sku_id[0], sku_id[1], week), None)
+
+
 def impute_all_stockouts(
     df: pd.DataFrame,
     surd_transforms: pd.DataFrame,
     q_levels: np.ndarray,
     state_df: Optional[pd.DataFrame] = None,
     n_neighbors: int = 20,
-    verbose: bool = True
+    verbose: bool = True,
+    n_jobs: int = -1
 ) -> Dict[Tuple[int, int, int], pd.Series]:
     """
-    Impute SIPs for all detected stockout weeks.
+    Impute SIPs for all detected stockout weeks (parallelized).
     
     Args:
         df: Demand dataframe with 'in_stock' flag
@@ -510,6 +550,7 @@ def impute_all_stockouts(
         state_df: Optional inventory state for precise stock level detection
         n_neighbors: Number of neighbors for matching
         verbose: Print progress
+        n_jobs: Number of parallel jobs (-1 = all cores, 1 = sequential)
         
     Returns:
         Dictionary mapping (Store, Product, week) -> imputed SIP
@@ -517,37 +558,36 @@ def impute_all_stockouts(
     stockouts = df[df['in_stock'] == False]
     
     if verbose:
-        print(f"Imputing {len(stockouts)} stockout observations...")
+        n_cores = multiprocessing.cpu_count() if n_jobs == -1 else n_jobs
+        print(f"Imputing {len(stockouts)} stockout observations using {n_cores} cores...")
     
+    # Parallel execution
+    if n_jobs == 1:
+        # Sequential fallback
+        results = [
+            _impute_single_stockout(row, df, surd_transforms, q_levels, n_neighbors)
+            for _, row in stockouts.iterrows()
+        ]
+    else:
+        # Parallel processing
+        results = Parallel(n_jobs=n_jobs, backend='loky', verbose=0)(
+            delayed(_impute_single_stockout)(row, df, surd_transforms, q_levels, n_neighbors)
+            for _, row in stockouts.iterrows()
+        )
+    
+    # Collect results
     imputed_sips = {}
-    
-    for idx, row in stockouts.iterrows():
-        sku_id = (row['Store'], row['Product'])
-        week = row['week']
-        stock_level = row['sales']  # Observed sales = stock for stockouts
-        
-        # Get transform for this SKU
-        try:
-            if sku_id in surd_transforms.index:
-                transform_name = surd_transforms.loc[sku_id, 'best_transform']
-            else:
-                transform_name = 'log'  # Default
-        except:
-            transform_name = 'log'
-        
-        # Impute
-        try:
-            sip = impute_stockout_sip(
-                sku_id, week, stock_level, q_levels, df,
-                transform_name, n_neighbors
-            )
-            imputed_sips[(sku_id[0], sku_id[1], week)] = sip
-        except Exception as e:
-            if verbose:
-                warnings.warn(f"Failed to impute {sku_id}, week {week}: {e}")
+    failed_count = 0
+    for key, sip in results:
+        if sip is not None:
+            imputed_sips[key] = sip
+        else:
+            failed_count += 1
     
     if verbose:
         print(f"✅ Successfully imputed {len(imputed_sips)} / {len(stockouts)} stockouts")
+        if failed_count > 0:
+            print(f"⚠️  {failed_count} imputations failed")
     
     return imputed_sips
 

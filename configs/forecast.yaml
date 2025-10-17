@@ -1,0 +1,43 @@
+paths:
+  processed: /Users/jpmcdonald/Code/vn2/data/processed
+  models: /Users/jpmcdonald/Code/vn2/models/trained
+  checkpoints: /Users/jpmcdonald/Code/vn2/models/checkpoints
+  results: /Users/jpmcdonald/Code/vn2/models/results
+
+quantiles: [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+horizon: 2  # weeks (h=1, h=2)
+holdout_weeks: 12
+rolling_origins: 12
+
+compute:
+  n_jobs: 11
+  omp_threads: 1
+  use_metal: true
+  timeout_per_fit: 120  # seconds
+
+# Model configurations
+models:
+  croston_classic:
+    enabled: true
+    variant: classic
+    alpha: 0.1
+    
+  croston_sba:
+    enabled: true
+    variant: sba
+    alpha: 0.1
+    
+  croston_tsb:
+    enabled: true
+    variant: tsb
+    alpha: 0.1
+    
+  seasonal_naive:
+    enabled: true
+    season_length: 52
+
+# Pilot test configuration
+pilot:
+  n_skus: 30
+  models: [croston_classic, seasonal_naive]  # Start with fast models
+
