@@ -35,6 +35,22 @@ models:
   seasonal_naive:
     enabled: true
     season_length: 52
+  
+  zip:
+    enabled: true
+    type: poisson
+  
+  zinb:
+    enabled: true
+    type: negbin
+  
+  lightgbm_quantile:
+    enabled: true
+    max_depth: 6
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 100
+    min_data_in_leaf: 20
 
 # Pilot test configuration
 pilot:

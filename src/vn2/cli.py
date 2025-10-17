@@ -365,6 +365,26 @@ def cmd_forecast(args):
     def make_seasonal_naive():
         return SeasonalNaiveForecaster(forecast_config, season_length=52)
     
+    def make_zip():
+        from vn2.forecast.models.zero_inflated import ZIPForecaster
+        return ZIPForecaster(forecast_config)
+    
+    def make_zinb():
+        from vn2.forecast.models.zero_inflated import ZINBForecaster
+        return ZINBForecaster(forecast_config)
+    
+    def make_lightgbm_quantile():
+        from vn2.forecast.models.lightgbm_quantile import LightGBMQuantileForecaster
+        lgb_params = cfg['models']['lightgbm_quantile']
+        return LightGBMQuantileForecaster(
+            forecast_config,
+            max_depth=lgb_params.get('max_depth', 6),
+            num_leaves=lgb_params.get('num_leaves', 31),
+            learning_rate=lgb_params.get('learning_rate', 0.05),
+            n_estimators=lgb_params.get('n_estimators', 100),
+            min_data_in_leaf=lgb_params.get('min_data_in_leaf', 20)
+        )
+    
     # Select models
     if args.pilot:
         models = {
@@ -382,6 +402,12 @@ def cmd_forecast(args):
             models['croston_tsb'] = make_croston_tsb
         if cfg['models']['seasonal_naive']['enabled']:
             models['seasonal_naive'] = make_seasonal_naive
+        if cfg['models']['zip']['enabled']:
+            models['zip'] = make_zip
+        if cfg['models']['zinb']['enabled']:
+            models['zinb'] = make_zinb
+        if cfg['models']['lightgbm_quantile']['enabled']:
+            models['lightgbm_quantile'] = make_lightgbm_quantile
     
     rprint(f"\n🤖 Models to train: {list(models.keys())}")
     
