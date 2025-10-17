@@ -1,0 +1,99 @@
+📈 Starting forecast model training...
+📊 Data loaded:
+   Observations: 94,043
+   SKUs: 599
+   Imputed: 10,517 (11.2%)
+
+🤖 Models to train: ['croston_classic', 'croston_sba', 'croston_tsb', 
+'seasonal_naive', 'zip', 'zinb']
+
+⚙️  Parallel workers: 11
+⏱️  Timeout per fit: 120s
+
+Starting training...
+
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.3s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.6s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.6s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.6s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.8s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
