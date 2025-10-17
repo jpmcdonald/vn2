@@ -259,8 +259,8 @@ class ForecastPipeline:
             print("All tasks already complete!")
             return self._load_results()
         
-        # Parallel execution
-        print(f"Starting parallel execution with {n_jobs} workers...")
+        # Parallel execution with threading backend (avoids system permission issues)
+        print(f"Starting parallel execution with {n_jobs} workers (threading backend)...")
         
         results = []
         batch_size = 100
@@ -268,7 +268,7 @@ class ForecastPipeline:
         for batch_start in range(0, len(tasks), batch_size):
             batch_tasks = tasks[batch_start:batch_start + batch_size]
             
-            batch_results = Parallel(n_jobs=n_jobs, verbose=5)(
+            batch_results = Parallel(n_jobs=n_jobs, backend='threading', verbose=5)(
                 delayed(self.train_one)(
                     task,
                     df,
