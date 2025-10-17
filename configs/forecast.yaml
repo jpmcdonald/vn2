@@ -45,7 +45,7 @@ models:
     type: negbin
   
   lightgbm_quantile:
-    enabled: true
+    enabled: false  # Requires pip install in user's environment
     max_depth: 6
     num_leaves: 31
     learning_rate: 0.05
