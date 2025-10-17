@@ -265,8 +265,18 @@ class ForecastPipeline:
         results = []
         batch_size = 100
         
+        # Track current model being trained
+        current_model = None
+        
         for batch_start in range(0, len(tasks), batch_size):
             batch_tasks = tasks[batch_start:batch_start + batch_size]
+            
+            # Log if we're starting a new model
+            if batch_tasks and batch_tasks[0].model_name != current_model:
+                current_model = batch_tasks[0].model_name
+                print(f"\n{'='*60}")
+                print(f"🚀 Starting model: {current_model}")
+                print(f"{'='*60}\n")
             
             batch_results = Parallel(n_jobs=n_jobs, backend='threading', verbose=5)(
                 delayed(self.train_one)(
@@ -287,7 +297,14 @@ class ForecastPipeline:
             
             # Save progress after each batch
             self._save_progress()
-            print(f"Completed {len(self.progress['completed'])} / {len(self.progress['completed']) + len(tasks)} tasks")
+            
+            # Report progress by model
+            model_name = batch_tasks[0].model_name
+            # Count how many tasks for this model have been completed (stored as strings like "model_sku_fold")
+            model_completed = sum(1 for task_str in self.progress['completed'] if task_str.startswith(f"{model_name}_"))
+            model_total_pending = sum(1 for t in tasks if t.model_name == model_name)
+            model_total = model_total_pending + model_completed
+            print(f"✓ {model_name}: {model_completed}/{model_total} | Overall: {len(self.progress['completed'])} / {len(self.progress['completed']) + len(tasks)} tasks")
         
         # Convert to DataFrame
         results_df = pd.DataFrame(results)

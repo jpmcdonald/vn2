@@ -51,6 +51,34 @@ models:
     learning_rate: 0.05
     n_estimators: 100
     min_data_in_leaf: 20
+  
+  ets:
+    enabled: true
+    error: add
+    trend: null
+    seasonal: null
+    seasonal_periods: 52
+  
+  slurp_bootstrap:
+    enabled: true  # ✅ FIXED! Index alignment bug resolved
+    n_neighbors: 50
+    n_bootstrap: 1000
+  
+  linear_quantile:
+    enabled: true
+    alpha: 1.0
+    solver: highs
+  
+  ngboost:
+    enabled: false  # Requires pip install ngboost (SSL cert issue in sandbox)
+    dist: LogNormal
+    n_estimators: 100
+    learning_rate: 0.01
+  
+  knn_profile:
+    enabled: true
+    n_neighbors: 20
+    lookback_weeks: 13
 
 # Pilot test configuration
 pilot:

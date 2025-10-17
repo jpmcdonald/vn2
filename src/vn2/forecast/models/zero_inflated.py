@@ -1,180 +1,152 @@
 """
-Zero-Inflated Poisson and Negative Binomial models for intermittent demand.
+Zero-Inflated Poisson (ZIP) and Zero-Inflated Negative Binomial (ZINB) forecasters.
 
-These models explicitly handle excess zeros by modeling:
-1. Probability of zero (logistic regression)
-2. Count distribution for non-zeros (Poisson or NegBin)
+These models explicitly handle intermittent demand by modeling:
+1. The probability of zero demand (logistic regression)
+2. The count distribution for non-zero demand (Poisson or Negative Binomial)
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional
+from typing import Optional, Dict
+from statsmodels.discrete.count_model import ZeroInflatedPoisson, ZeroInflatedNegativeBinomialP
 from .base import BaseForecaster, ForecastConfig
-
-try:
-    from statsmodels.discrete.count_model import ZeroInflatedPoisson, ZeroInflatedNegativeBinomialP
-    STATSMODELS_AVAILABLE = True
-except ImportError:
-    STATSMODELS_AVAILABLE = False
 
 
 class ZeroInflatedForecaster(BaseForecaster):
-    """Base class for Zero-Inflated models."""
+    """
+    Zero-Inflated Poisson (ZIP) or Zero-Inflated Negative Binomial (ZINB) forecaster.
+    """
     
     def __init__(self, config: ForecastConfig, model_type: str = 'poisson'):
-        super().__init__(config, name=f"ZI_{model_type}")
+        """
+        Args:
+            config: Forecast configuration
+            model_type: 'poisson' for ZIP, 'negbin' for ZINB
+        """
+        name = f"ZI{model_type.upper()}"
+        super().__init__(config, name=name)
         self.model_type = model_type
         self.fitted_model = None
-        self.last_features = None
-        
-        if not STATSMODELS_AVAILABLE:
-            raise ImportError("statsmodels is required for Zero-Inflated models. Install with: pip install statsmodels")
     
-    def fit(self, history: pd.DataFrame, master_df: Optional[pd.DataFrame] = None, 
-            surd_df: Optional[pd.DataFrame] = None) -> 'ZeroInflatedForecaster':
+    def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'ZeroInflatedForecaster':
         """
-        Fit Zero-Inflated model with exogenous features.
+        Fit Zero-Inflated model to time series.
         
         Args:
-            history: DataFrame with 'sales' and feature columns
-            master_df: Not used
-            surd_df: Not used
+            y: Time series of demand
+            X: Optional exogenous features (not used in this simple implementation)
         """
-        y = history['sales'].values
-        
-        # Build simple feature set from history
-        # Use lags, rolling stats, and calendar features if available
-        X = self._build_features(history)
-        
-        if len(X) < 10:  # Need minimum observations
-            # Fallback to simple model with just intercept
-            X = pd.DataFrame({'const': np.ones(len(y))}, index=history.index)
-        
-        # Align y and X
-        y = y[X.index]
-        
         try:
-            if self.model_type == 'poisson':
-                self.fitted_model = ZeroInflatedPoisson(
-                    endog=y,
-                    exog=X,
-                    exog_infl=X  # Same features for inflation model
-                ).fit(disp=False, maxiter=100)
-            else:  # negbin
-                self.fitted_model = ZeroInflatedNegativeBinomialP(
-                    endog=y,
-                    exog=X,
-                    exog_infl=X,
-                    p=2  # NB2 parameterization
-                ).fit(disp=False, maxiter=100)
+            # For now, fit a simple model without exogenous features
+            # statsmodels ZIP/ZINB requires exog parameter (can be None for intercept-only)
+            # We need to create a constant (intercept) term
+            import numpy as np
+            exog_const = np.ones((len(y), 1))
             
-            self.last_features = X.iloc[-1].values
+            if self.model_type == 'poisson':
+                model = ZeroInflatedPoisson(endog=y, exog=exog_const, exog_infl=exog_const)
+            elif self.model_type == 'negbin':
+                model = ZeroInflatedNegativeBinomialP(endog=y, exog=exog_const, exog_infl=exog_const)
+            else:
+                raise ValueError(f"Unsupported model type: {self.model_type}")
+            
+            self.fitted_model = model.fit(disp=False, maxiter=100)
+            self.exog_const = exog_const  # Store for prediction
+            self.is_fitted_ = True
             
         except Exception as e:
-            # If fitting fails, store None and handle in predict
+            # If fitting fails, fall back to naive approach
             self.fitted_model = None
-            self.last_features = None
+            self.is_fitted_ = False
+            raise RuntimeError(f"Failed to fit {self.name} model: {e}")
         
         return self
     
-    def _build_features(self, history: pd.DataFrame) -> pd.DataFrame:
-        """Build simple feature matrix from history."""
-        features = pd.DataFrame(index=history.index)
-        features['const'] = 1.0
-        
-        sales = history['sales'].values
-        
-        # Lag features (if enough data)
-        if len(sales) > 1:
-            features['lag_1'] = pd.Series(sales).shift(1).fillna(0).values
-        if len(sales) > 4:
-            features['lag_4'] = pd.Series(sales).shift(4).fillna(0).values
-        if len(sales) > 8:
-            features['lag_8'] = pd.Series(sales).shift(8).fillna(0).values
-        
-        # Rolling mean (if enough data)
-        if len(sales) > 4:
-            features['rolling_mean_4'] = pd.Series(sales).rolling(4, min_periods=1).mean().values
-        
-        # Zero indicator
-        features['is_zero'] = (sales == 0).astype(float)
-        
-        # Calendar features if available in history
-        if 'week_of_year' in history.columns:
-            # Cyclical encoding
-            woy = history['week_of_year'].values
-            features['week_sin'] = np.sin(2 * np.pi * woy / 52)
-            features['week_cos'] = np.cos(2 * np.pi * woy / 52)
-        
-        # Drop rows with NaN from lag creation
-        features = features.dropna()
-        
-        return features
-    
-    def predict_quantiles(self, forecast_origin_week: int, horizon_weeks: int) -> Dict[int, pd.Series]:
+    def predict_quantiles(
+        self, 
+        steps: int = 2, 
+        X_future: Optional[pd.DataFrame] = None
+    ) -> pd.DataFrame:
         """
-        Generate quantile forecasts by simulating from the fitted distribution.
+        Generate quantile forecasts via simulation.
+        
+        Args:
+            steps: Number of steps ahead (1-2)
+            X_future: Optional future features (not used)
+            
+        Returns:
+            DataFrame with index=steps and columns=quantiles
         """
-        if self.fitted_model is None or self.last_features is None:
-            # Model failed to fit, return zeros
-            return {h: pd.Series(0.0, index=self.config.quantiles) for h in range(1, horizon_weeks + 1)}
+        if not self.is_fitted_:
+            raise ValueError("Model not fitted. Call .fit() first.")
         
-        forecasts = {}
+        # Extract model parameters
+        params = self.fitted_model.params
         
-        # Use last observation's features for all horizons
-        # In production, you'd iterate and update features per horizon
-        X_future = self.last_features.reshape(1, -1)
-        
-        for h in range(1, horizon_weeks + 1):
-            # Predict parameters
-            mu = self.fitted_model.predict(X_future)[0]  # Mean count
+        if self.model_type == 'poisson':
+            # params[0] = inflate_logit, params[1] = count_log_lambda
+            p_zero = 1 / (1 + np.exp(-params[0]))  # Inverse logit
+            count_lambda = np.exp(params[1])  # Inverse log
             
-            # Get inflation probability (probability of structural zero)
-            if hasattr(self.fitted_model, 'predict_prob'):
-                prob_zero = self.fitted_model.predict_prob(X_future)[0]
-            else:
-                # Fallback: use model's inflation model
-                prob_zero = 0.0  # Conservative
-            
-            # Simulate from the distribution
+            # Simulate demand
+            rng = np.random.default_rng(self.config.random_state)
             n_sims = 10000
-            rng = np.random.default_rng(self.config.random_state + h)
             
-            # Simulate from Zero-Inflated distribution
-            # Step 1: Draw structural zeros
-            is_structural_zero = rng.random(n_sims) < prob_zero
+            # For each step, generate simulations
+            quantiles_dict = {}
+            for step in range(1, steps + 1):
+                # Bernoulli draw for zero-inflation
+                is_zero = rng.binomial(1, p_zero, n_sims)
+                
+                # Poisson draws for non-zero
+                nonzero_demands = rng.poisson(count_lambda, n_sims)
+                
+                # Combine: zero if is_zero==1, else nonzero_demand
+                simulated_demands = np.where(is_zero, 0, nonzero_demands)
+                
+                # Compute quantiles
+                quantile_values = np.quantile(simulated_demands, self.config.quantiles)
+                quantiles_dict[step] = quantile_values
             
-            # Step 2: Draw from count distribution for non-structural zeros
-            if self.model_type == 'poisson':
-                counts = rng.poisson(lam=max(mu, 0.01), size=n_sims)
-            else:  # negbin
-                # Approximate NegBin with Gamma-Poisson mixture
-                # For simplicity, use overdispersed Poisson
-                variance = mu * 1.5  # Assume some overdispersion
-                counts = rng.negative_binomial(
-                    n=max(mu**2 / (variance - mu + 1e-9), 0.1),
-                    p=max(mu / (variance + 1e-9), 0.01),
-                    size=n_sims
-                )
+        elif self.model_type == 'negbin':
+            # params[0] = inflate_logit, params[1] = count_log_mu, params[2] = count_log_alpha
+            p_zero = 1 / (1 + np.exp(-params[0]))
+            count_mu = np.exp(params[1])
+            count_alpha = np.exp(params[2])
             
-            # Combine: structural zeros override counts
-            simulated = np.where(is_structural_zero, 0, counts)
+            # Convert to n, p for numpy negative_binomial
+            # For NB parameterization: n = 1/alpha, p = 1/(1+mu*alpha)
+            n_nb = 1 / count_alpha
+            p_nb = 1 / (1 + count_mu * count_alpha)
             
-            # Compute quantiles
-            quantile_values = np.quantile(simulated, self.config.quantiles)
-            forecasts[h] = pd.Series(quantile_values, index=self.config.quantiles)
+            rng = np.random.default_rng(self.config.random_state)
+            n_sims = 10000
+            
+            quantiles_dict = {}
+            for step in range(1, steps + 1):
+                is_zero = rng.binomial(1, p_zero, n_sims)
+                nonzero_demands = rng.negative_binomial(n_nb, p_nb, n_sims)
+                simulated_demands = np.where(is_zero, 0, nonzero_demands)
+                quantile_values = np.quantile(simulated_demands, self.config.quantiles)
+                quantiles_dict[step] = quantile_values
         
-        return forecasts
+        # Convert to DataFrame
+        df = pd.DataFrame(quantiles_dict, index=self.config.quantiles).T
+        df.index.name = 'step'
+        
+        return df
 
 
 class ZIPForecaster(ZeroInflatedForecaster):
-    """Zero-Inflated Poisson forecaster."""
+    """Zero-Inflated Poisson forecaster (convenience wrapper)."""
+    
     def __init__(self, config: ForecastConfig):
         super().__init__(config, model_type='poisson')
 
 
 class ZINBForecaster(ZeroInflatedForecaster):
-    """Zero-Inflated Negative Binomial forecaster."""
+    """Zero-Inflated Negative Binomial forecaster (convenience wrapper)."""
+    
     def __init__(self, config: ForecastConfig):
         super().__init__(config, model_type='negbin')
-

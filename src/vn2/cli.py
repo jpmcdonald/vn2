@@ -385,6 +385,54 @@ def cmd_forecast(args):
             min_data_in_leaf=lgb_params.get('min_data_in_leaf', 20)
         )
     
+    def make_ets():
+        from vn2.forecast.models.ets import ETSForecaster
+        ets_params = cfg['models']['ets']
+        return ETSForecaster(
+            forecast_config,
+            error=ets_params.get('error', 'add'),
+            trend=ets_params.get('trend'),
+            seasonal=ets_params.get('seasonal'),
+            seasonal_periods=ets_params.get('seasonal_periods', 52)
+        )
+    
+    def make_slurp_bootstrap():
+        from vn2.forecast.models.slurp_bootstrap import SLURPBootstrapForecaster
+        params = cfg['models']['slurp_bootstrap']
+        return SLURPBootstrapForecaster(
+            forecast_config,
+            n_neighbors=params.get('n_neighbors', 50),
+            n_bootstrap=params.get('n_bootstrap', 1000)
+        )
+    
+    def make_linear_quantile():
+        from vn2.forecast.models.linear_quantile import LinearQuantileForecaster
+        params = cfg['models']['linear_quantile']
+        return LinearQuantileForecaster(
+            forecast_config,
+            alpha=params.get('alpha', 1.0),
+            solver=params.get('solver', 'highs')
+        )
+    
+    def make_ngboost():
+        from vn2.forecast.models.ngboost_dist import NGBoostForecaster
+        params = cfg['models']['ngboost']
+        return NGBoostForecaster(
+            forecast_config,
+            dist=params.get('dist', 'LogNormal'),
+            n_estimators=params.get('n_estimators', 100),
+            learning_rate=params.get('learning_rate', 0.01)
+        )
+    
+    def make_knn_profile():
+        from vn2.forecast.models.knn_profile import KNNProfileForecaster
+        params = cfg['models']['knn_profile']
+        return KNNProfileForecaster(
+            forecast_config,
+            n_neighbors=params.get('n_neighbors', 20),
+            lookback_weeks=params.get('lookback_weeks', 13)
+        )
+    
     # Select models
     if args.pilot:
         models = {
@@ -408,12 +456,27 @@ def cmd_forecast(args):
             models['zinb'] = make_zinb
         if cfg['models']['lightgbm_quantile']['enabled']:
             models['lightgbm_quantile'] = make_lightgbm_quantile
+        if cfg['models']['ets']['enabled']:
+            models['ets'] = make_ets
+        if cfg['models']['slurp_bootstrap']['enabled']:
+            models['slurp_bootstrap'] = make_slurp_bootstrap
+        if cfg['models']['linear_quantile']['enabled']:
+            models['linear_quantile'] = make_linear_quantile
+        if cfg['models']['ngboost']['enabled']:
+            models['ngboost'] = make_ngboost
+        if cfg['models']['knn_profile']['enabled']:
+            models['knn_profile'] = make_knn_profile
     
     rprint(f"\n🤖 Models to train: {list(models.keys())}")
     
-    # Pilot SKUs
+    # Pilot or Test SKUs
     pilot_skus = None
-    if args.pilot:
+    if args.test:
+        # Test mode: just one SKU
+        all_skus = df[['Store', 'Product']].drop_duplicates().values.tolist()
+        pilot_skus = [tuple(all_skus[0])]
+        rprint(f"🧪 TEST MODE: Training on 1 SKU: {pilot_skus[0]}")
+    elif args.pilot:
         all_skus = df[['Store', 'Product']].drop_duplicates().values.tolist()
         pilot_skus = [tuple(sku) for sku in all_skus[:cfg['pilot']['n_skus']]]
         rprint(f"🧪 Pilot: Training on {len(pilot_skus)} SKUs")
@@ -503,7 +566,8 @@ def main():
     g = sp.add_parser("forecast", help="Train density forecast models")
     g.add_argument("--config", default="configs/forecast.yaml", help="Config file")
     g.add_argument("--pilot", action="store_true", help="Run pilot test on subset of SKUs")
-    g.add_argument("--n-jobs", type=int, default=11, help="Number of parallel workers")
+    g.add_argument("--test", action="store_true", help="Test mode: train on 1 SKU only")
+    g.add_argument("--n-jobs", type=int, default=1, help="Number of parallel workers")
     g.set_defaults(func=cmd_forecast)
     
     args = p.parse_args()

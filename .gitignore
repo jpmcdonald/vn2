@@ -19,6 +19,9 @@ data/interim/
 data/processed/
 data/submissions/
 runs/
+models/checkpoints/
+models/results/
+logs/
 
 # IDE
 .vscode/

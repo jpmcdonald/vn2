@@ -40,10 +40,8 @@ class CrostonForecaster(BaseForecaster):
         self.probability_demand_ = None
         self.is_fitted_ = False
         
-    def fit(self, history: pd.DataFrame, master_df: Optional[pd.DataFrame] = None, 
-            surd_df: Optional[pd.DataFrame] = None) -> 'CrostonForecaster':
+    def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'CrostonForecaster':
         """Fit Croston model to time series"""
-        y = history['sales']
         y_vals = y.values
         
         # Identify nonzero demands
@@ -104,30 +102,35 @@ class CrostonForecaster(BaseForecaster):
             smooth = alpha * val + (1 - alpha) * smooth
         return smooth
     
-    def predict_quantiles(self, forecast_origin_week: int, horizon_weeks: int) -> dict:
+    def predict_quantiles(self, steps: int = 2, X_future: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
         Generate quantile forecasts via simulation.
         
-        Simulates demand as Bernoulli(p) × Empirical(sizes)
+        Args:
+            steps: Number of steps ahead to forecast
+            X_future: Future features (not used by Croston)
         
         Returns:
-            Dict mapping horizon step to pd.Series of quantiles
+            DataFrame with index=steps and columns=quantiles
         """
         if not self.is_fitted_:
             raise ValueError("Model not fitted")
         
         # Generate via simulation, then compute empirical quantiles
         n_sims = 10000
-        sims = self._simulate_demand(horizon_weeks, n_sims)
+        sims = self._simulate_demand(steps, n_sims)
         
-        # Compute quantiles
+        # Compute quantiles for each step
         quantiles_dict = {}
-        for step in range(1, horizon_weeks + 1):
+        for step in range(1, steps + 1):
             step_sims = sims[:, step - 1]
             quantile_values = np.quantile(step_sims, self.config.quantiles)
-            quantiles_dict[step] = pd.Series(quantile_values, index=self.config.quantiles)
+            quantiles_dict[step] = quantile_values
         
-        return quantiles_dict
+        # Convert to DataFrame (index=steps, columns=quantiles)
+        df = pd.DataFrame(quantiles_dict, index=self.config.quantiles).T
+        df.index.name = 'step'
+        return df
     
     def _simulate_demand(self, steps: int, n_sims: int) -> np.ndarray:
         """Simulate demand paths"""
