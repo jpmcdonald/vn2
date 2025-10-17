@@ -10,25 +10,33 @@ from typing import Tuple, Optional, List
 from scipy import stats
 
 
-def create_calendar_features(dates: pd.DatetimeIndex) -> pd.DataFrame:
+def create_calendar_features(dates: pd.Series) -> pd.DataFrame:
     """
     Create calendar-based features.
     
     Args:
-        dates: DatetimeIndex
+        dates: Series or DatetimeIndex of dates
         
     Returns:
         DataFrame with calendar features
     """
-    df = pd.DataFrame(index=dates)
-    df['week_of_year'] = dates.isocalendar().week.values
-    df['month'] = dates.month
-    df['quarter'] = dates.quarter
-    df['day_of_week'] = dates.dayofweek
-    df['is_month_start'] = dates.is_month_start.astype(int)
-    df['is_month_end'] = dates.is_month_end.astype(int)
-    df['is_quarter_start'] = dates.is_quarter_start.astype(int)
-    df['is_quarter_end'] = dates.is_quarter_end.astype(int)
+    # Convert to DatetimeIndex if needed
+    if isinstance(dates, pd.Series):
+        dt = pd.to_datetime(dates).dt
+        idx = dates.index
+    else:
+        dt = dates
+        idx = dates
+    
+    df = pd.DataFrame(index=idx)
+    df['week_of_year'] = dt.isocalendar().week.values if hasattr(dt, 'isocalendar') else dt.week
+    df['month'] = dt.month
+    df['quarter'] = dt.quarter
+    df['day_of_week'] = dt.dayofweek if hasattr(dt, 'dayofweek') else dt.day_of_week
+    df['is_month_start'] = dt.is_month_start.astype(int)
+    df['is_month_end'] = dt.is_month_end.astype(int)
+    df['is_quarter_start'] = dt.is_quarter_start.astype(int)
+    df['is_quarter_end'] = dt.is_quarter_end.astype(int)
     
     # Cyclical encoding for seasonality
     df['week_sin'] = np.sin(2 * np.pi * df['week_of_year'] / 52)
@@ -172,23 +180,31 @@ def create_intermittency_features(
 
 
 def create_seasonality_features(
-    dates: pd.DatetimeIndex,
+    dates: pd.Series,
     n_fourier: int = 3
 ) -> pd.DataFrame:
     """
     Create Fourier seasonal features for annual cycle.
     
     Args:
-        dates: DatetimeIndex
+        dates: Series or DatetimeIndex of dates
         n_fourier: Number of Fourier pairs (sin/cos)
         
     Returns:
         DataFrame with Fourier features
     """
-    df = pd.DataFrame(index=dates)
+    # Convert to datetime accessor if needed
+    if isinstance(dates, pd.Series):
+        dt = pd.to_datetime(dates).dt
+        idx = dates.index
+    else:
+        dt = dates
+        idx = dates
+    
+    df = pd.DataFrame(index=idx)
     
     # Day of year for annual cycle
-    day_of_year = dates.dayofyear
+    day_of_year = dt.dayofyear if hasattr(dt, 'dayofyear') else dt.day_of_year
     
     for k in range(1, n_fourier + 1):
         df[f'fourier_sin_{k}'] = np.sin(2 * np.pi * k * day_of_year / 365.25)

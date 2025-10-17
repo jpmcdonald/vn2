@@ -1,0 +1,65 @@
+📈 Starting forecast model training...
+📊 Data loaded:
+   Observations: 94,043
+   SKUs: 599
+   Imputed: 10,517 (11.2%)
+
+🧪 PILOT MODE: Using 2 fast models
+
+🤖 Models to train: ['croston_classic', 'seasonal_naive']
+🧪 Pilot: Training on 30 SKUs
+
+⚙️  Parallel workers: 11
+⏱️  Timeout per fit: 120s
+
+Starting training...
+
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.9s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    3.5s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.9s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    3.5s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.9s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    3.5s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.8s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    3.1s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.5s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.7s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.6s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done  50 tasks      | elapsed:    1.4s
+[Parallel(n_jobs=11)]: Done 100 out of 100 | elapsed:    2.6s finished
+[Parallel(n_jobs=11)]: Using backend ThreadingBackend with 11 concurrent workers.
+[Parallel(n_jobs=11)]: Done   4 out of  20 | elapsed:    0.3s remaining:    1.1s
+[Parallel(n_jobs=11)]: Done   9 out of  20 | elapsed:    0.3s remaining:    0.4s
+[Parallel(n_jobs=11)]: Done  14 out of  20 | elapsed:    0.5s remaining:    0.2s
+[Parallel(n_jobs=11)]: Done  20 out of  20 | elapsed:    0.5s finished
+Data changed, resetting progress (old: , new: 09f7c1ffda7e89de)
+Total tasks: 720
+Already completed: 0
+To run: 720
+Starting parallel execution with 11 workers (threading backend)...
+Completed 100 / 820 tasks
+Completed 200 / 920 tasks
+Completed 300 / 1020 tasks
+Completed 400 / 1120 tasks
+Completed 500 / 1220 tasks
+Completed 600 / 1320 tasks
+Completed 700 / 1420 tasks
+Completed 720 / 1440 tasks
+
+Training complete!
+  Success: 720
+  Failed: 0
+  Timeout: 0
+  Insufficient data: 0
+
+✅ Training complete!
+   Results saved to: 
+/Users/jpmcdonald/Code/vn2/models/results/training_results.parquet
