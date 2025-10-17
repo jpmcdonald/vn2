@@ -18,7 +18,7 @@ class SeasonalNaiveForecaster(BaseForecaster):
     """
     
     def __init__(self, config: ForecastConfig, season_length: int = 52):
-        super().__init__(config)
+        super().__init__(config, name=f"SeasonalNaive_S{season_length}")
         self.season_length = season_length
         self.last_values_ = None
         self.residuals_ = None

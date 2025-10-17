@@ -28,8 +28,9 @@ class BaseForecaster(ABC):
     All models must generate quantile forecasts for h=1 and h=2 weeks ahead.
     """
     
-    def __init__(self, config: ForecastConfig):
+    def __init__(self, config: ForecastConfig, name: str = "BaseForecaster"):
         self.config = config
+        self.name = name
         self.quantiles = config.quantiles
         self.horizon = config.horizon
         self.transform_name = config.transform_name
