@@ -13,39 +13,39 @@ compute:
   n_jobs: 11
   omp_threads: 1
   use_metal: true
-  timeout_per_fit: 120  # seconds
+  timeout_per_fit: 90  # seconds
 
 # Model configurations
 models:
   croston_classic:
-    enabled: true
+    enabled: false
     variant: classic
     alpha: 0.1
     
   croston_sba:
-    enabled: true
+    enabled: false
     variant: sba
     alpha: 0.1
     
   croston_tsb:
-    enabled: true
+    enabled: false
     variant: tsb
     alpha: 0.1
     
   seasonal_naive:
-    enabled: true
+    enabled: false
     season_length: 52
   
   zip:
-    enabled: true
+    enabled: false
     type: poisson
   
   zinb:
-    enabled: true
+    enabled: false
     type: negbin
   
   lightgbm_quantile:
-    enabled: false  # Requires pip install in user's environment
+    enabled: true
     max_depth: 6
     num_leaves: 31
     learning_rate: 0.05
@@ -53,30 +53,30 @@ models:
     min_data_in_leaf: 20
   
   ets:
-    enabled: true
+    enabled: false
     error: add
     trend: null
     seasonal: null
     seasonal_periods: 52
   
   slurp_bootstrap:
-    enabled: true  # ✅ FIXED! Index alignment bug resolved
+    enabled: false
     n_neighbors: 50
     n_bootstrap: 1000
   
   linear_quantile:
-    enabled: true
+    enabled: false
     alpha: 1.0
     solver: highs
   
   ngboost:
-    enabled: false  # Requires pip install ngboost (SSL cert issue in sandbox)
+    enabled: true
     dist: LogNormal
     n_estimators: 100
     learning_rate: 0.01
   
   knn_profile:
-    enabled: true
+    enabled: false
     n_neighbors: 20
     lookback_weeks: 13
 

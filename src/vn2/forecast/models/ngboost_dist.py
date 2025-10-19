@@ -56,18 +56,37 @@ class NGBoostForecaster(BaseForecaster):
         except ImportError:
             raise ImportError("NGBoost not installed. Run: pip install ngboost")
         
+        # Align X and y indices and handle duplicates
+        common_idx = X.index.intersection(y.index)
+        if len(common_idx) == 0:
+            raise ValueError("No common indices between X and y")
+        
+        X_aligned = X.loc[common_idx]
+        y_aligned = y.loc[common_idx]
+        
+        # Remove duplicate indices (keep last occurrence)
+        if not X_aligned.index.is_unique:
+            X_aligned = X_aligned[~X_aligned.index.duplicated(keep='last')]
+        if not y_aligned.index.is_unique:
+            y_aligned = y_aligned[~y_aligned.index.duplicated(keep='last')]
+        
+        # Final alignment after deduplication
+        final_idx = X_aligned.index.intersection(y_aligned.index)
+        X_aligned = X_aligned.loc[final_idx]
+        y_aligned = y_aligned.loc[final_idx]
+        
         # Select distribution
         if self.dist_name == 'LogNormal':
             dist = LogNormal
             # For LogNormal, ensure positive values
-            y_vals = np.maximum(y.values, 0.01)
+            y_vals = np.maximum(y_aligned.values, 0.01)
         elif self.dist_name == 'Poisson':
             dist = Poisson
-            y_vals = y.values
+            y_vals = y_aligned.values
         else:
             raise ValueError(f"Unsupported distribution: {self.dist_name}")
         
-        X_vals = X.values
+        X_vals = X_aligned.values
         
         try:
             self.model = NGBRegressor(

@@ -47,18 +47,35 @@ class LightGBMQuantileForecaster(BaseForecaster):
         self.models_= {}  # Dict of quantile -> trained model
         self.feature_names_ = None
     
-    def fit(self, history: pd.DataFrame, master_df: Optional[pd.DataFrame] = None,
-            surd_df: Optional[pd.DataFrame] = None) -> 'LightGBMQuantileForecaster':
+    def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'LightGBMQuantileForecaster':
         """
         Fit separate LightGBM models for each quantile.
         
         Args:
-            history: DataFrame with 'sales' and time index
-            master_df: Not used
-            surd_df: Not used
+            y: Time series of demand
+            X: Optional feature matrix (if None, will create basic features)
         """
-        # Build features
-        X, y = self._prepare_data(history)
+        # Build features if not provided
+        if X is None or X.empty:
+            X, y = self._prepare_data_from_series(y)
+        else:
+            # Use provided features, ensure alignment
+            common_idx = X.index.intersection(y.index)
+            if len(common_idx) == 0:
+                raise ValueError("No common indices between X and y")
+            X = X.loc[common_idx].copy()
+            y = y.loc[common_idx].copy()
+            
+            # Remove duplicate indices (keep last occurrence)
+            if not X.index.is_unique:
+                X = X[~X.index.duplicated(keep='last')]
+            if not y.index.is_unique:
+                y = y[~y.index.duplicated(keep='last')]
+            
+            # Final alignment after deduplication
+            final_idx = X.index.intersection(y.index)
+            X = X.loc[final_idx]
+            y = y.loc[final_idx]
         
         if len(X) < self.min_data_in_leaf * 2:
             # Not enough data to train
@@ -98,16 +115,19 @@ class LightGBMQuantileForecaster(BaseForecaster):
         
         return self
     
-    def _prepare_data(self, history: pd.DataFrame) -> tuple:
+    def _prepare_data_from_series(self, y: pd.Series) -> tuple:
         """
-        Build feature matrix and target from history.
+        Build feature matrix and target from a time series.
         
+        Args:
+            y: Time series of demand
+            
         Returns:
             X: Feature DataFrame
-            y: Target Series (sales)
+            y: Target Series (cleaned)
         """
-        y = history['sales'].copy()
-        X = pd.DataFrame(index=history.index)
+        y = y.copy()
+        X = pd.DataFrame(index=y.index)
         
         # Lag features
         for lag in [1, 2, 4, 8, 13, 52]:
@@ -126,17 +146,6 @@ class LightGBMQuantileForecaster(BaseForecaster):
         X['is_zero'] = (y == 0).astype(int)
         X['zeros_pct_13'] = X['is_zero'].rolling(13, min_periods=1).mean()
         
-        # Calendar features if available
-        if 'week_of_year' in history.columns:
-            woy = history['week_of_year']
-            X['week_sin'] = np.sin(2 * np.pi * woy / 52)
-            X['week_cos'] = np.cos(2 * np.pi * woy / 52)
-        
-        if 'month' in history.columns:
-            month = history['month']
-            X['month_sin'] = np.sin(2 * np.pi * month / 12)
-            X['month_cos'] = np.cos(2 * np.pi * month / 12)
-        
         # Trend
         X['time_idx'] = np.arange(len(y))
         
@@ -147,34 +156,59 @@ class LightGBMQuantileForecaster(BaseForecaster):
         
         return X, y
     
-    def predict_quantiles(self, forecast_origin_week: int, horizon_weeks: int) -> Dict[int, pd.Series]:
+    def predict_quantiles(
+        self, 
+        steps: int = 2, 
+        X_future: Optional[pd.DataFrame] = None
+    ) -> pd.DataFrame:
         """
         Generate quantile forecasts for each horizon.
         
-        For multi-step forecasting, we use a recursive strategy:
-        - Predict h=1, then update features and predict h=2
+        Args:
+            steps: Number of steps ahead to forecast
+            X_future: Future features (required for LightGBM)
+            
+        Returns:
+            DataFrame with index=steps and columns=quantiles
         """
         if not self.models_:
             # Model not trained, return zeros
-            return {h: pd.Series(0.0, index=self.config.quantiles) for h in range(1, horizon_weeks + 1)}
+            result = pd.DataFrame(
+                0.0, 
+                index=range(1, steps + 1), 
+                columns=self.config.quantiles
+            )
+            result.index.name = 'step'
+            return result
         
-        forecasts = {}
+        if X_future is None or len(X_future) < steps:
+            # No features provided, return zeros
+            result = pd.DataFrame(
+                0.0, 
+                index=range(1, steps + 1), 
+                columns=self.config.quantiles
+            )
+            result.index.name = 'step'
+            return result
         
-        # For simplicity, use the last available features for all horizons
-        # In production, you'd iterate and update features per horizon
-        
-        for h in range(1, horizon_weeks + 1):
+        # Predict for each step using provided features
+        forecasts = []
+        for step_idx in range(steps):
+            X_step = X_future.iloc[step_idx:step_idx+1]
             quantile_values = []
             for q in self.config.quantiles:
                 if q in self.models_:
-                    # Predict using last features (would need to build X_future properly)
-                    # For now, use a simple approximation
-                    pred = self.models_[q].predict(np.zeros((1, len(self.feature_names_))))[0]
+                    pred = self.models_[q].predict(X_step)[0]
                     quantile_values.append(max(0, pred))
                 else:
                     quantile_values.append(0.0)
-            
-            forecasts[h] = pd.Series(quantile_values, index=self.config.quantiles)
+            forecasts.append(quantile_values)
         
-        return forecasts
+        result = pd.DataFrame(
+            forecasts,
+            index=range(1, steps + 1),
+            columns=self.config.quantiles
+        )
+        result.index.name = 'step'
+        return result
 
