@@ -313,6 +313,72 @@ def cmd_impute_stockouts(args):
     rprint(f"   Full SIPs saved to [bold]{processed_dir}/imputed_sips.parquet[/bold]")
 
 
+def cmd_eval_models(args):
+    """Evaluate trained models with cost-based ranking"""
+    import os
+    import subprocess
+    
+    # Set BLAS threads
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+    
+    # Compute n_jobs if not specified
+    if args.n_jobs is None:
+        result = subprocess.run(['sysctl', '-n', 'hw.logicalcpu'], capture_output=True, text=True)
+        total_cores = int(result.stdout.strip())
+        n_jobs = max(1, int(total_cores * args.cpu_fraction))
+    else:
+        n_jobs = args.n_jobs
+    
+    rprint(f"[bold blue]📊 Evaluating forecast models...[/bold blue]")
+    rprint(f"   Holdout: {args.holdout} folds")
+    rprint(f"   Workers: {n_jobs}")
+    rprint(f"   Batch size: {args.batch_size}")
+    rprint(f"   Simulations: {args.n_sims}")
+    
+    # Import and run
+    from vn2.analyze.model_eval import run_evaluation, aggregate_results
+    
+    checkpoint_dir = Path('models/checkpoints')
+    demand_path = Path('data/processed/demand_imputed.parquet')
+    master_path = Path('data/processed/master.parquet')
+    output_dir = Path('models/results')
+    progress_file = Path('models/results/eval_progress.json')
+    
+    if args.aggregate:
+        # Only aggregate
+        input_path = output_dir / "eval_folds.parquet"
+        if not input_path.exists():
+            rprint(f"[bold red]❌ No results file found at {input_path}[/bold red]")
+            return
+        aggregate_results(input_path, output_dir)
+    else:
+        # Run evaluation
+        costs_dict = {'holding': 0.2, 'shortage': 1.0}
+        
+        run_evaluation(
+            checkpoint_dir=checkpoint_dir,
+            demand_path=demand_path,
+            master_path=master_path,
+            output_dir=output_dir,
+            progress_file=progress_file,
+            holdout_weeks=args.holdout,
+            n_jobs=n_jobs,
+            batch_size=args.batch_size,
+            n_sims=args.n_sims,
+            resume=args.resume,
+            costs_dict=costs_dict,
+            lead_weeks=2,
+            review_weeks=1
+        )
+        
+        # Auto-aggregate if completed
+        final_path = output_dir / "eval_folds.parquet"
+        if final_path.exists():
+            aggregate_results(final_path, output_dir)
+
+
 def cmd_forecast(args):
     """Train density forecast models with checkpoint/resume"""
     import os
@@ -569,6 +635,17 @@ def main():
     g.add_argument("--test", action="store_true", help="Test mode: train on 1 SKU only")
     g.add_argument("--n-jobs", type=int, default=1, help="Number of parallel workers")
     g.set_defaults(func=cmd_forecast)
+    
+    # eval-models (NEW)
+    g = sp.add_parser("eval-models", help="Evaluate trained models with cost-based ranking")
+    g.add_argument("--holdout", type=int, default=8, help="Number of rolling-origin folds")
+    g.add_argument("--n-sims", type=int, default=500, help="Monte Carlo samples")
+    g.add_argument("--cpu-fraction", type=float, default=0.5, help="Fraction of CPU cores to use")
+    g.add_argument("--n-jobs", type=int, help="Number of parallel workers (overrides cpu-fraction)")
+    g.add_argument("--batch-size", type=int, default=2000, help="Tasks per batch")
+    g.add_argument("--resume", action="store_true", help="Resume from checkpoint")
+    g.add_argument("--aggregate", action="store_true", help="Only run aggregation")
+    g.set_defaults(func=cmd_eval_models)
     
     args = p.parse_args()
     args.func(args)
