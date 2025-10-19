@@ -20,8 +20,35 @@ data/processed/
 data/submissions/
 runs/
 models/checkpoints/
+models/trained/
 models/results/
 logs/
+
+# data files
+*.csv
+*.parquet
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.feather
+*.arrow
+
+# binary/serialized model files
+*.pt
+*.pth
+*.ckpt
+*.weights
+*.model
+*.joblib
+*.sav
+
+# other large/generated files
+*.xml
+*.json.gz
+*.zip
+*.tar.gz
+*.log
 
 # IDE
 .vscode/
