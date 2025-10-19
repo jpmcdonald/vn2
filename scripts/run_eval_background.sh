@@ -8,9 +8,15 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
-# Activate virtual environment
-if [ -f "./activate.sh" ]; then
+# Activate virtual environment directly
+if [ -d "./V2env" ]; then
+    source ./V2env/bin/activate
+    export PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH}"
+elif [ -f "./activate.sh" ]; then
     source ./activate.sh
+else
+    echo "❌ Error: No virtual environment found"
+    exit 1
 fi
 
 # Generate timestamp
