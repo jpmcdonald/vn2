@@ -190,6 +190,109 @@ def compute_shape_metrics(quantiles_df: pd.DataFrame, n_sims: int = 500, seed: i
     return metrics
 
 
+def compute_newsvendor_metrics(
+    y_true: np.ndarray,
+    quantiles_df: pd.DataFrame,
+    costs: Costs
+) -> Dict[str, float]:
+    """
+    Compute newsvendor-specific metrics focused on critical fractile performance.
+    
+    Args:
+        y_true: Actual realized demand
+        quantiles_df: Forecast quantiles (rows=steps, columns=quantile levels)
+        costs: Cost parameters (holding, shortage)
+    
+    Returns:
+        Dictionary with newsvendor metrics
+    """
+    metrics = {}
+    quantile_levels = quantiles_df.columns.values
+    
+    # Critical fractile for newsvendor
+    critical_fractile = costs.shortage / (costs.holding + costs.shortage)
+    metrics['critical_fractile'] = float(critical_fractile)
+    
+    # Find closest quantile to critical fractile
+    cf_idx = np.argmin(np.abs(quantile_levels - critical_fractile))
+    cf_actual = quantile_levels[cf_idx]
+    
+    # Pinball loss at critical fractile
+    if 1 in quantiles_df.index and len(y_true) >= 1:
+        q_cf_h1 = quantiles_df.iloc[0, cf_idx]
+        error = y_true[0] - q_cf_h1
+        pinball_cf = error * critical_fractile if error > 0 else -error * (1 - critical_fractile)
+        metrics['pinball_cf_h1'] = float(pinball_cf)
+        
+        # Calibration: did actual exceed forecast at critical fractile?
+        metrics['hit_cf_h1'] = float(y_true[0] >= q_cf_h1)
+    
+    if 2 in quantiles_df.index and len(y_true) >= 2:
+        q_cf_h2 = quantiles_df.iloc[1, cf_idx]
+        error = y_true[1] - q_cf_h2
+        pinball_cf = error * critical_fractile if error > 0 else -error * (1 - critical_fractile)
+        metrics['pinball_cf_h2'] = float(pinball_cf)
+        metrics['hit_cf_h2'] = float(y_true[1] >= q_cf_h2)
+    
+    # Local sharpness around critical fractile (80th to 90th percentiles)
+    idx_80 = np.argmin(np.abs(quantile_levels - 0.80))
+    idx_90 = np.argmin(np.abs(quantile_levels - 0.90))
+    
+    for step in [1, 2]:
+        if step in quantiles_df.index:
+            q_80 = quantiles_df.iloc[step-1, idx_80]
+            q_90 = quantiles_df.iloc[step-1, idx_90]
+            metrics[f'local_width_h{step}'] = float(q_90 - q_80)
+            
+            # Quantile gradient (steepness)
+            if q_90 - q_80 > 0:
+                metrics[f'quantile_gradient_h{step}'] = float((q_90 - q_80) / 0.10)
+    
+    # Curvature around critical fractile
+    idx_75 = np.argmin(np.abs(quantile_levels - 0.75))
+    idx_87 = np.argmin(np.abs(quantile_levels - 0.87))
+    
+    for step in [1, 2]:
+        if step in quantiles_df.index:
+            q_75 = quantiles_df.iloc[step-1, idx_75]
+            q_cf = quantiles_df.iloc[step-1, cf_idx]
+            q_87 = quantiles_df.iloc[step-1, idx_87]
+            
+            lower_span = q_cf - q_75
+            upper_span = q_87 - q_cf
+            
+            if lower_span > 0 and upper_span > 0:
+                # Ratio should be ~1 for symmetric, <1 for left-skewed, >1 for right-skewed
+                metrics[f'cf_asymmetry_h{step}'] = float(upper_span / lower_span)
+    
+    # Asymmetric loss (weighted by cost ratio)
+    if len(y_true) >= 1 and 0.5 in quantiles_df.columns:
+        median_idx = np.argmin(np.abs(quantile_levels - 0.5))
+        forecast = quantiles_df.iloc[0, median_idx]
+        error = y_true[0] - forecast
+        
+        if error > 0:  # Underprediction (shortage)
+            asym_loss = costs.shortage * error
+        else:  # Overprediction (holding)
+            asym_loss = costs.holding * abs(error)
+        
+        metrics['asymmetric_loss_h1'] = float(asym_loss)
+    
+    if len(y_true) >= 2 and 0.5 in quantiles_df.columns:
+        median_idx = np.argmin(np.abs(quantile_levels - 0.5))
+        forecast = quantiles_df.iloc[1, median_idx]
+        error = y_true[1] - forecast
+        
+        if error > 0:
+            asym_loss = costs.shortage * error
+        else:
+            asym_loss = costs.holding * abs(error)
+        
+        metrics['asymmetric_loss_h2'] = float(asym_loss)
+    
+    return metrics
+
+
 def compute_cost_metric(
     y_true: np.ndarray,
     quantiles_df: pd.DataFrame,
@@ -241,27 +344,66 @@ def compute_cost_metric(
     
     # Inventory position at fold origin
     position = initial_state["on_hand"].iloc[0] + initial_state["intransit_1"].iloc[0] + initial_state["intransit_2"].iloc[0]
-    order_qty = max(0, S - position)
+    order_qty_cont = max(0, S - position)
+    
+    # INTEGERIZE order quantity (round up to be conservative given asymmetric costs)
+    order_qty = int(np.ceil(order_qty_cont))
     
     # Simulate costs
     sim = Simulator(costs, lt)
     
     if realized_cost:
         # Use actual realized demand (single deterministic path)
+        # INTEGERIZE demand (round actual demand)
+        y_true_int = np.round(y_true).astype(int)
+        
         state = initial_state.copy()
         total_cost = 0.0
+        total_shortage = 0
+        total_holding = 0
+        stockouts = 0
+        total_demand = 0
+        total_satisfied = 0
         
         for step in range(horizon):
-            demand_t = pd.Series([y_true[step]], index=state.index)
+            demand_t = pd.Series([float(y_true_int[step])], index=state.index)
+            total_demand += y_true_int[step]
             
             # Week 0: place computed order; after: zero recourse
             if step == 0:
-                order_t = pd.Series([order_qty], index=state.index)
+                order_t = pd.Series([float(order_qty)], index=state.index)
             else:
-                order_t = pd.Series([0], index=state.index)
+                order_t = pd.Series([0.0], index=state.index)
             
             state, cost_dict = sim.step(state, demand_t, order_t)
             total_cost += cost_dict["total"]
+            
+            # Track component costs and service metrics
+            if "shortage" in cost_dict:
+                shortage_cost = cost_dict["shortage"]
+                holding_cost = cost_dict.get("holding", 0)
+                total_shortage += shortage_cost
+                total_holding += holding_cost
+                
+                # Stockout if we had any shortage cost
+                if shortage_cost > 0:
+                    stockouts += 1
+                    
+                # Satisfied demand = actual demand - shortage units
+                shortage_units = shortage_cost / costs.shortage if costs.shortage > 0 else 0
+                satisfied = max(0, y_true_int[step] - shortage_units)
+                total_satisfied += satisfied
+        
+        # Decision-based metrics
+        service_level = 1.0 - (stockouts / horizon) if horizon > 0 else 1.0
+        fill_rate = total_satisfied / total_demand if total_demand > 0 else 1.0
+        
+        # Optimal order (if we knew actual demand)
+        optimal_order = int(np.sum(y_true_int))
+        regret_abs = abs(order_qty - optimal_order)
+        
+        # Cost should be exact multiple of 0.2
+        # (shortage cost = 1.0 * integer units, holding = 0.2 * integer units)
         
         return {
             'expected_cost': float(total_cost),
@@ -269,7 +411,13 @@ def compute_cost_metric(
             'cost_q05': float(total_cost),
             'cost_q95': float(total_cost),
             'order_qty': float(order_qty),
-            'base_stock_level': float(S)
+            'base_stock_level': float(S),
+            'shortage_cost': float(total_shortage),
+            'holding_cost': float(total_holding),
+            'service_level': float(service_level),
+            'fill_rate': float(fill_rate),
+            'regret_qty': float(regret_abs),
+            'optimal_qty': float(optimal_order)
         }
     else:
         # Sample demand scenarios from forecast quantiles (original v1 logic)
@@ -410,6 +558,10 @@ def evaluate_one(
         # Shape metrics
         shape_metrics = compute_shape_metrics(quantiles_df, n_sims=min(n_sims, 500), seed=seed)
         result.update(shape_metrics)
+        
+        # Newsvendor-specific metrics
+        newsvendor_metrics = compute_newsvendor_metrics(y_true, quantiles_df, costs)
+        result.update(newsvendor_metrics)
         
         # Cost metrics
         # Create simple initial state (zero inventory for fair comparison)
@@ -592,6 +744,7 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     df = pd.read_parquet(input_path)
     
     # Aggregate per (SKU, model)
+    # Use SUMS for cost (not means), means for accuracy metrics
     agg_funcs = {
         'mae': 'mean',
         'mape': 'mean',
@@ -606,8 +759,24 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
         'width_80': 'mean',
         'width_90': 'mean',
         'width_95': 'mean',
-        'expected_cost': 'mean',
-        'cost_std': 'mean',
+        'expected_cost': 'sum',  # TOTAL cost across folds
+        'shortage_cost': 'sum',
+        'holding_cost': 'sum',
+        'service_level': 'mean',
+        'fill_rate': 'mean',
+        'regret_qty': 'sum',
+        'pinball_cf_h1': 'mean',  # Newsvendor metrics
+        'pinball_cf_h2': 'mean',
+        'hit_cf_h1': 'mean',  # Calibration at critical fractile
+        'hit_cf_h2': 'mean',
+        'local_width_h1': 'mean',
+        'local_width_h2': 'mean',
+        'quantile_gradient_h1': 'mean',
+        'quantile_gradient_h2': 'mean',
+        'cf_asymmetry_h1': 'mean',
+        'cf_asymmetry_h2': 'mean',
+        'asymmetric_loss_h1': 'sum',
+        'asymmetric_loss_h2': 'sum',
         'fold_idx': 'count'  # Number of folds
     }
     
@@ -624,11 +793,21 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     print(f"✅ Saved aggregated results: {agg_path}")
     
     # Create leaderboards
-    # Overall leaderboard (average across all SKUs)
-    overall = agg_df.groupby('model_name').agg({
-        col: 'mean' for col in agg_funcs.keys() if col in agg_df.columns and col != 'n_folds'
-    }).reset_index()
+    # Overall leaderboard: SUM for costs, MEAN for accuracy metrics
+    overall_agg = {}
+    for col in agg_df.columns:
+        if col in ['model_name', 'store', 'product', 'n_folds']:
+            continue
+        elif col in ['expected_cost', 'shortage_cost', 'holding_cost', 'regret_qty', 'asymmetric_loss_h1', 'asymmetric_loss_h2']:
+            # TOTAL cost across all SKUs
+            overall_agg[col] = 'sum'
+        else:
+            # AVERAGE accuracy/density metrics
+            overall_agg[col] = 'mean'
     
+    overall = agg_df.groupby('model_name').agg(overall_agg).reset_index()
+    
+    # Rank by total cost
     if 'expected_cost' in overall.columns:
         overall = overall.sort_values('expected_cost')
     
@@ -638,10 +817,20 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     
     # Print summary
     print(f"\n{'='*60}")
-    print("🏆 Overall Leaderboard (by expected cost)")
+    print("🏆 Overall Leaderboard (by TOTAL expected cost)")
     print(f"{'='*60}")
     if 'expected_cost' in overall.columns:
-        print(overall[['model_name', 'expected_cost', 'mae', 'coverage_90']].to_string(index=False))
+        display_cols = ['model_name', 'expected_cost', 'mae']
+        if 'pinball_cf_h1' in overall.columns:
+            display_cols.append('pinball_cf_h1')
+        if 'hit_cf_h1' in overall.columns:
+            display_cols.append('hit_cf_h1')
+        if 'service_level' in overall.columns:
+            display_cols.append('service_level')
+        display_cols.append('coverage_90')
+        
+        display_cols = [c for c in display_cols if c in overall.columns]
+        print(overall[display_cols].to_string(index=False))
 
 
 def main():
