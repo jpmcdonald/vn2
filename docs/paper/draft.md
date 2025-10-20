@@ -1,10 +1,10 @@
 <!-- Working draft for INFORMS Analytics+ submission -->
 
-## Censored SURD-Aware SLURP Bootstrapping: Stop Trying to Forecast Precisely Right, Only to Optimize Explicitly Wrong
+## Why Forecast Precisely Right, Only to Optimize Explicitly Wrong: a Censored SURD^2 SLURP Bootstrapping Engine
 
 ### Abstract
 
-Many operational decisions are made by chaining a point forecast to a deterministic optimization policy, implicitly assuming linear objectives and symmetric loss. In inventory systems with asymmetric costs, lead times, and stockout censoring, this practice systematically underperforms density-based decision making due to Jensen’s inequality. We present a practical, production-ready framework that integrates: (i) stockout-aware conditional bootstrapping (SLURP) operating on raw, censored observations; (ii) SURD (Systematic Unsupervised Representation Discovery) to select variance-stabilizing transforms per series; and (iii) SIP (Stochastic Inventory Position) optimization that solves the sequential newsvendor with integer order quantities and explicit lead times. We show how to avoid the common anti-pattern of “forecasting precisely right, then optimizing explicitly wrong” by evaluating models under the decision they induce. Across 599 store–item time series with frequent zeros and stockouts, our approach reduces realized cost relative to point+service-level policies and standard density baselines, and is robust to extreme imputations by modeling censoring uncertainty directly in the forecast distribution.
+Many operational decisions are made by chaining a point forecast to a deterministic optimization policy, implicitly assuming linear objectives and symmetric loss. In inventory systems with asymmetric costs, lead times, and stockout censoring, this practice systematically underperforms density-based decision making due to Jensen’s inequality. We present a practical, production-ready framework that integrates: (i) stockout-aware conditional bootstrapping Stochastic Library Unit with Relationships Preserved (SLURP) operating on raw, censored observations; (ii) Systematic Unsupervised Representation Discovery (SURD) to select variance-stabilizing transforms per series; (iii) Synergistic Unique Redundant Decomposition (also SURD) and (iv) SIP (Stochastic Information Packet) optimization that solves the sequential newsvendor with integer order quantities and explicit lead times. We show how to avoid the common anti-pattern of “forecasting precisely right, then optimizing explicitly wrong” by evaluating models under the decision they induce. Across 599 store–item time series with frequent zeros and stockouts, our approach reduces realized cost relative to point+service-level policies and standard density baselines, and is robust to extreme imputations by modeling censoring uncertainty directly in the forecast distribution.
 
 ### 1. Introduction
 
@@ -67,6 +67,47 @@ We characterize sparsity (counts of zeros), stockout frequency (in_stock=0), dis
 
 We train 9 models with parallel checkpointing and per-model data handling (raw+censoring for SLURP family; winsorized imputed for challengers). Resource use is configurable (n_jobs, BLAS threads). Selection is per series based on SIP realized cost (week-2) with density metric tie-breakers. We store fold-level evaluations and aggregate leaderboards.
 
+### 6.1 Challenger Benchmark Plan (Density vs Point; Jensen Study)
+
+- Objectives:
+  - Maintain SLURP variants on clean raw+censoring for ablation parity
+  - Build broad challenger set (point and density)
+  - Winsorize imputed data in transform space for non-SLURP models
+  - Evaluate each model under two decisions: density-aware SIP vs. point+service-level
+  - Quantify SURD effect, stockout-awareness, Jensen gap, and challenger parity
+
+- Data strategy:
+  - SLURP (4): train on raw with in_stock (no imputation)
+  - Non-SLURP: train on `demand_imputed_winsor.parquet` (SURD transform-space μ+3σ winsorization of imputed extremes; invert and clip; preserve observed weeks)
+
+- Models to train (suite):
+  - SLURP family: slurp_bootstrap; slurp_surd; slurp_stockout_aware; slurp_surd_stockout_aware
+  - Challengers: lightgbm_quantile (density); lightgbm_point (deterministic/MSE); linear_quantile; NGBoost (LogNormal); QRF; ETS; Seasonal Naive; ZIP/ZINB; Croston (classic/SBA/TSB); GLM Poisson/NB (deferred)
+
+- Decision policies per model:
+  - Density-aware SIP: model quantiles → PMF → SIP optimizer (lead-time, integer Q, exclude week-1 realized cost)
+  - Point+service-level: point forecast + CF = p/(h+p); order to target with best-practice approximations (Normal from residuals for continuous; Poisson/NB for intermittent)
+
+- Evaluation matrix (v4):
+  - Cost with densities (SIP) and with point policy
+  - Coverage/width at 80/90/95; pinball@CF; CRPS; shape metrics near CF; service/fill rate
+  - Leaderboards by realized cost; cohort leaderboards (stockout rate; mean demand; sparsity)
+
+- What we learn (ties to hypotheses):
+  - Jensen effect: Δcost = (point policy) − (SIP); expect positive gap favoring SIP
+  - Stockout-awareness: SLURP stockout-aware vs. non-aware on high-stockout cohorts; expect lower shortage cost
+  - SURD effect: SLURP SURD vs. non-SURD; expect improved calibration/sharpness near CF
+  - Censoring bias: quantify penalty of non-SLURP models trained on winsorized vs raw
+  - Challenger parity: which baselines are close/dominated; where SLURP adds most value
+
+- Deliverables:
+  - Winsorized data artifact; trained checkpoints; folds/agg/leaderboards for both decisions
+  - Ablation and Jensen gap plots; cohort analyses
+
+- Timeline and risks (abbrev.):
+  - Training 4–8h; evaluation 3–6h (depending on cores)
+  - Prophet/GLM optional; convergence/install risks mitigated by skipping/fallbacks
+
 ### 7. Evaluation of Hypotheses (placeholder)
 
 We will present:
@@ -74,6 +115,32 @@ We will present:
 - Stockout-awareness effect: SLURP stockout-aware vs non-aware on censored cohorts.
 - SURD effect: transform vs identity for SLURP and ablations; changes in calibration at CF.
 - Cohort analysis by sparsity, mean demand, and stockout rate.
+
+#### 7.1 Jensen Effect (Decision Gap)
+
+Using the v4 evaluation, we computed Jensen deltas per model as Δ = cost(point policy) − cost(SIP). Positive values favor density-aware SIP decisions.
+
+- Top deltas (aggregated): croston_tsb/ets/knn_profile/lightgbm_point/ngboost/seasonal_naive/slurp_* ≈ +606,858; croston_classic/sba ≈ +604,107; qrf ≈ +383,916; zinb ≈ +11,230.
+- Interpretation: optimizing on the full predictive distribution materially reduces realized cost versus chaining a point forecast to a service-level rule, with the largest gains on methods whose point policies under-react to right-tail risk.
+
+#### 7.2 Cohort Analysis
+
+We sliced Jensen deltas by demand rate, zero ratio, dispersion (CV), and stockout rate to localize where decision-aware methods help most.
+
+- By demand rate: largest mean gaps on low-rate (sparse) series for Croston/ETS/KNN families.
+- By zeros: zinb shows moderate gains on low-zero cohorts; Croston/ETS gains grow with higher zero ratios.
+- By CV: biggest gains in low/mid CV cohorts for Croston/ETS/QRF; limited sample in high CV.
+- By stockouts: mid/high stockout cohorts show large gains for QRF and Croston/ETS relative to point policy.
+
+Figures: Jensen delta summaries by cohort (higher is better for SIP vs point policy)
+
+![Jensen by demand rate](../../reports/jensen_rate.png)
+
+![Jensen by zero ratio](../../reports/jensen_zero.png)
+
+![Jensen by coefficient of variation](../../reports/jensen_cv.png)
+
+![Jensen by stockout rate](../../reports/jensen_stockout.png)
 
 ### 8. SLURP Ablation Analysis (placeholder)
 

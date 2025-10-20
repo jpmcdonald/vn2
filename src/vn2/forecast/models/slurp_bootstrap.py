@@ -35,7 +35,12 @@ class SLURPBootstrapForecaster(BaseForecaster):
         config: ForecastConfig,
         n_neighbors: int = 50,
         n_bootstrap: int = 1000,
-        stockout_aware: bool = False
+        stockout_aware: bool = False,
+        use_pid_weights: bool = False,
+        pid_weights_df: Optional[pd.DataFrame] = None,
+        k_from_pid: bool = False,
+        pid_k_df: Optional[pd.DataFrame] = None,
+        synergy_interactions: bool = False
     ):
         """
         Args:
@@ -52,6 +57,14 @@ class SLURPBootstrapForecaster(BaseForecaster):
         self.history_X = None
         self.history_in_stock = None
         self.nn_model = None
+        self.feature_columns: Optional[list] = None
+        # PID-related
+        self.use_pid_weights = use_pid_weights
+        self.pid_weights_df = pid_weights_df
+        self.k_from_pid = k_from_pid
+        self.pid_k_df = pid_k_df
+        self.synergy_interactions = synergy_interactions
+        self.sku_id: Optional[Tuple[int, int]] = None
         
     def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'SLURPBootstrapForecaster':
         """
@@ -63,6 +76,12 @@ class SLURPBootstrapForecaster(BaseForecaster):
                 If stockout_aware=True, X must contain 'in_stock' column
         """
         self.history_y = y.values
+
+        # Try to infer SKU id from index/name
+        if hasattr(y.index, 'names') and len(y.index.names) >= 2:
+            self.sku_id = (y.index[0][0], y.index[0][1])
+        elif hasattr(y, 'name') and isinstance(y.name, tuple) and len(y.name) >= 2:
+            self.sku_id = (y.name[0], y.name[1])
         
         # Store stockout indicators if available
         if self.stockout_aware and X is not None and 'in_stock' in X.columns:
@@ -96,6 +115,44 @@ class SLURPBootstrapForecaster(BaseForecaster):
             
             # Use features for conditional sampling
             # Handle missing values by filling with column means
+            # Optionally add interaction for synergy between lag_1 and in_stock
+            if self.synergy_interactions and 'lag_1' in X.columns and 'in_stock' in X.columns:
+                X = X.copy()
+                X['lag1_x_instock'] = X['lag_1'].fillna(0) * X['in_stock'].fillna(0)
+
+            # Apply PID feature weights per SKU if provided
+            if self.use_pid_weights and self.pid_weights_df is not None and self.sku_id is not None:
+                try:
+                    pw = self.pid_weights_df
+                    if {'Store','Product','feature','weight'}.issubset(pw.columns):
+                        sku_w = pw[(pw['Store']==self.sku_id[0]) & (pw['Product']==self.sku_id[1])]
+                        if not sku_w.empty:
+                            weights = {row['feature']: float(row['weight']) for _, row in sku_w.iterrows()}
+                            # Normalize/cap weights for stability
+                            for k,v in list(weights.items()):
+                                if v <= 0 or not np.isfinite(v):
+                                    weights[k] = 1.0
+                                else:
+                                    weights[k] = float(np.clip(v, 0.25, 4.0))
+                            # Multiply columns by weights where both exist
+                            common = [c for c in X.columns if c in weights]
+                            if common:
+                                X = X.copy()
+                                X[common] = X[common].multiply([weights[c] for c in common], axis=1)
+                    # Adapt k if provided
+                    if self.k_from_pid and self.pid_k_df is not None and {'Store','Product','k'}.issubset(self.pid_k_df.columns):
+                        row = self.pid_k_df[(self.pid_k_df['Store']==self.sku_id[0]) & (self.pid_k_df['Product']==self.sku_id[1])]
+                        if not row.empty:
+                            k_val = int(row.iloc[0]['k'])
+                            if k_val > 1:
+                                self.n_neighbors = int(np.clip(k_val, 5, 200))
+                except Exception:
+                    # Fail open: ignore PID if any issue
+                    pass
+
+            # Remember training feature columns for alignment at predict time
+            self.feature_columns = list(X.columns)
+
             X_vals = X.fillna(X.mean()).values
             
             # If still NaN (all-NaN columns), fill with 0
@@ -214,7 +271,11 @@ class SLURPBootstrapForecaster(BaseForecaster):
                 # Conditional bootstrap: find similar historical observations
                 # Use the available feature row (might be less than step if X_future is short)
                 idx = min(step - 1, len(X_future) - 1)
-                future_features = X_future.iloc[idx:idx+1].fillna(X_future.mean()).values
+                Xf = X_future
+                # Align to training feature columns to avoid dimension mismatch
+                if self.feature_columns is not None and isinstance(Xf, pd.DataFrame):
+                    Xf = Xf.reindex(columns=self.feature_columns, fill_value=0)
+                future_features = Xf.iloc[idx:idx+1].fillna(Xf.mean()).values
                 
                 # Handle remaining NaNs
                 future_features = np.nan_to_num(future_features, nan=0.0)
@@ -286,7 +347,12 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
         n_bootstrap: int = 1000,
         stockout_aware: bool = True,
         use_surd: bool = True,
-        surd_transforms_df: Optional[pd.DataFrame] = None
+        surd_transforms_df: Optional[pd.DataFrame] = None,
+        use_pid_weights: bool = False,
+        pid_weights_df: Optional[pd.DataFrame] = None,
+        k_from_pid: bool = False,
+        pid_k_df: Optional[pd.DataFrame] = None,
+        synergy_interactions: bool = False
     ):
         """
         Args:
@@ -311,6 +377,12 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
         self.history_in_stock = None
         self.nn_model = None
         self.sku_id = None
+        # PID controls
+        self.use_pid_weights = use_pid_weights
+        self.pid_weights_df = pid_weights_df
+        self.k_from_pid = k_from_pid
+        self.pid_k_df = pid_k_df
+        self.synergy_interactions = synergy_interactions
         
     def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'SURDSLURPBootstrapForecaster':
         """
@@ -374,6 +446,38 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
             if len(X) != len(y):
                 raise ValueError(f"X and y length mismatch after alignment: X={len(X)}, y={len(y)}")
             
+            # Optionally add interaction for synergy between lag_1 and in_stock
+            if self.synergy_interactions and 'lag_1' in X.columns and 'in_stock' in X.columns:
+                X = X.copy()
+                X['lag1_x_instock'] = X['lag_1'].fillna(0) * X['in_stock'].fillna(0)
+
+            # Apply PID feature weights per SKU if provided
+            if self.use_pid_weights and self.pid_weights_df is not None and self.sku_id is not None:
+                try:
+                    pw = self.pid_weights_df
+                    if {'Store','Product','feature','weight'}.issubset(pw.columns):
+                        sku_w = pw[(pw['Store']==self.sku_id[0]) & (pw['Product']==self.sku_id[1])]
+                        if not sku_w.empty:
+                            weights = {row['feature']: float(row['weight']) for _, row in sku_w.iterrows()}
+                            for k,v in list(weights.items()):
+                                if v <= 0 or not np.isfinite(v):
+                                    weights[k] = 1.0
+                                else:
+                                    weights[k] = float(np.clip(v, 0.25, 4.0))
+                            common = [c for c in X.columns if c in weights]
+                            if common:
+                                X = X.copy()
+                                X[common] = X[common].multiply([weights[c] for c in common], axis=1)
+                    # Adapt k if provided
+                    if self.k_from_pid and self.pid_k_df is not None and {'Store','Product','k'}.issubset(self.pid_k_df.columns):
+                        row = self.pid_k_df[(self.pid_k_df['Store']==self.sku_id[0]) & (self.pid_k_df['Product']==self.sku_id[1])]
+                        if not row.empty:
+                            k_val = int(row.iloc[0]['k'])
+                            if k_val > 1:
+                                self.n_neighbors = int(np.clip(k_val, 5, 200))
+                except Exception:
+                    pass
+
             # Use features for conditional sampling
             X_vals = X.fillna(X.mean()).values
             X_vals = np.nan_to_num(X_vals, nan=0.0)

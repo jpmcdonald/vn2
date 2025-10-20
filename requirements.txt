@@ -16,4 +16,7 @@ ngboost>=0.5,<1
 pytest>=8.0,<9
 black>=24.0,<25
 ruff>=0.3,<1
+pylatex>=1.4,<2
+pylatexenc>=2.10,<3
+pyitlib>=0.3,<1
 

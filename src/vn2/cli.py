@@ -431,6 +431,12 @@ def cmd_forecast(args):
     df_winsor = pd.read_parquet(demand_winsor_path)
     master_df = pd.read_parquet(master_path) if master_path.exists() else None
     surd_df = pd.read_parquet(surd_path) if surd_path.exists() else None
+
+    # Optional PID weights/k
+    pid_w_path = Path('models/results/pid_feature_weights.parquet')
+    pid_k_path = Path('models/results/pid_k.parquet')
+    pid_w_df = pd.read_parquet(pid_w_path) if pid_w_path.exists() else None
+    pid_k_df = pd.read_parquet(pid_k_path) if pid_k_path.exists() else None
     
     # Default to winsorized for non-SLURP models
     df = df_winsor
@@ -499,7 +505,12 @@ def cmd_forecast(args):
             forecast_config,
             n_neighbors=params.get('n_neighbors', 50),
             n_bootstrap=params.get('n_bootstrap', 1000),
-            stockout_aware=False
+            stockout_aware=False,
+            use_pid_weights=bool(pid_w_df is not None),
+            pid_weights_df=pid_w_df,
+            k_from_pid=bool(pid_k_df is not None),
+            pid_k_df=pid_k_df,
+            synergy_interactions=True
         )
     
     def make_slurp_surd(surd_transforms_df=None):
@@ -512,7 +523,12 @@ def cmd_forecast(args):
             n_bootstrap=params.get('n_bootstrap', 1000),
             stockout_aware=False,  # KEY: No stockout handling
             use_surd=True,          # KEY: Yes SURD transforms
-            surd_transforms_df=surd_transforms_df
+            surd_transforms_df=surd_transforms_df,
+            use_pid_weights=bool(pid_w_df is not None),
+            pid_weights_df=pid_w_df,
+            k_from_pid=bool(pid_k_df is not None),
+            pid_k_df=pid_k_df,
+            synergy_interactions=True
         )
     
     def make_slurp_stockout_aware():
@@ -522,7 +538,12 @@ def cmd_forecast(args):
             forecast_config,
             n_neighbors=params.get('n_neighbors', 50),
             n_bootstrap=params.get('n_bootstrap', 1000),
-            stockout_aware=params.get('stockout_aware', True)
+            stockout_aware=params.get('stockout_aware', True),
+            use_pid_weights=bool(pid_w_df is not None),
+            pid_weights_df=pid_w_df,
+            k_from_pid=bool(pid_k_df is not None),
+            pid_k_df=pid_k_df,
+            synergy_interactions=True
         )
     
     def make_slurp_surd_stockout_aware(surd_transforms_df=None):
@@ -534,7 +555,12 @@ def cmd_forecast(args):
             n_bootstrap=params.get('n_bootstrap', 1000),
             stockout_aware=params.get('stockout_aware', True),
             use_surd=params.get('use_surd', True),
-            surd_transforms_df=surd_transforms_df
+            surd_transforms_df=surd_transforms_df,
+            use_pid_weights=bool(pid_w_df is not None),
+            pid_weights_df=pid_w_df,
+            k_from_pid=bool(pid_k_df is not None),
+            pid_k_df=pid_k_df,
+            synergy_interactions=True
         )
     
     def make_linear_quantile():
@@ -712,6 +738,23 @@ def cmd_forecast(args):
     
     rprint(f"\n[bold green]✅ Training complete![/bold green]")
     rprint(f"   Results saved to: {cfg['paths']['results']}/training_results.parquet")
+# ---- PID EDA ----
+def cmd_eda_info(args):
+    """Run Imin PID on a sample of SKUs and save results."""
+    cfg = load_config(args.config)
+    from vn2.analyze.info_decomp import sample_pid
+    demand_path = Path(cfg['paths']['processed']) / 'demand_long.parquet'
+    if not demand_path.exists():
+        rprint(f"[bold red]Error: {demand_path} not found.[/bold red]")
+        return
+    df = pd.read_parquet(demand_path)
+    rprint(f"📊 Running PID (Imin) for {args.n_skus} SKUs...")
+    out = sample_pid(df, n=args.n_skus, seed=args.seed)
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(out_path)
+    rprint(f"✅ Saved PID sample to: {out_path}")
+    return out
 
 
 # ---- Main CLI ----
@@ -797,6 +840,14 @@ def main():
     g.add_argument("--out-suffix", type=str, default="", help="Output file suffix (e.g., 'v4')")
     g.add_argument("--models", type=str, nargs='+', help="Specific models to evaluate (default: all)")
     g.set_defaults(func=cmd_eval_models)
+    
+    # eda-info (NEW)
+    g = sp.add_parser("eda-info", help="Run information decomposition EDA (Imin PID)")
+    g.add_argument("--config", default="configs/forecast.yaml", help="Config file")
+    g.add_argument("--n-skus", type=int, default=10, help="Number of SKUs to sample")
+    g.add_argument("--seed", type=int, default=0, help="Random seed")
+    g.add_argument("--output", type=str, default="models/results/pid_imin_sample.parquet", help="Output path")
+    g.set_defaults(func=cmd_eda_info)
     
     args = p.parse_args()
     args.func(args)
