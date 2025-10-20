@@ -5,67 +5,97 @@ Per-SKU model selector: Choose best model for each SKU based on newsvendor metri
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Literal, Optional, Dict
+from typing import Literal, Optional, Dict, List
 
 
 def select_per_sku_from_folds(
     eval_folds_path: Path,
     cost_col: str = 'sip_realized_cost_w2',
+    fold_window: int = 8,
+    tie_breakers: List[str] = None,
     output_path: Optional[Path] = None
 ) -> pd.DataFrame:
     """
-    Per-SKU selector using fold-level costs (tie-aware).
+    Per-SKU selector using last-N decision-affected folds with CF tie-breaking.
     
-    For each SKU, aggregate cost across folds per model, find min, handle ties.
+    For each SKU, aggregate cost across last-N folds per model, rank by cost + CF metrics.
     
     Args:
         eval_folds_path: Path to eval_folds parquet (e.g., eval_folds_v4_sip.parquet)
         cost_col: Cost column to minimize (default: sip_realized_cost_w2)
+        fold_window: Number of last folds to use per SKU (default: 8)
+        tie_breakers: List of CF metrics for tie-breaking (default: pinball_cf_h2, hit_cf_h2, local_width_h2)
         output_path: Optional path to save selector map
     
     Returns:
-        DataFrame with (store, product, best_model, total_cost, n_ties)
+        DataFrame with (store, product, selected_model, total_cost_w8, model_rank)
     """
+    if tie_breakers is None:
+        tie_breakers = ['pinball_cf_h2', 'hit_cf_h2', 'local_width_h2']
+    
     df = pd.read_parquet(eval_folds_path)
     
     if cost_col not in df.columns:
         raise ValueError(f"Cost column {cost_col} not found. Available: {df.columns.tolist()}")
     
-    # Aggregate cost per SKU per model across folds
-    agg = (df.groupby(['store', 'product', 'model_name'], as_index=False)[cost_col]
-             .sum().rename(columns={cost_col: 'total_cost'}))
+    # Select last-N folds per SKU
+    df['_fold_rank'] = df.groupby(['store', 'product'])['fold_idx'].rank(method='first', ascending=False)
+    dfN = df[df['_fold_rank'] <= fold_window].copy()
     
-    # Find min per SKU
-    min_cost = agg.groupby(['store', 'product'])['total_cost'].transform('min')
-    champions = agg[agg['total_cost'] == min_cost].copy()
+    # Primary score: sum of cost across last-N folds
+    agg = (dfN.groupby(['store', 'product', 'model_name'], as_index=False)[cost_col]
+             .sum().rename(columns={cost_col: 'total_cost_w8'}))
     
-    # Count ties
-    n_ties = champions.groupby(['store', 'product'])['model_name'].transform('count')
-    champions['n_ties'] = n_ties
-    champions['win_share'] = 1.0 / n_ties
+    # Tie-breakers: aggregate CF metrics (mean across folds)
+    for tb in tie_breakers:
+        if tb in dfN.columns:
+            tb_agg = dfN.groupby(['store', 'product', 'model_name'])[tb].mean().reset_index()
+            tb_agg = tb_agg.rename(columns={tb: f'{tb}_mean'})
+            agg = agg.merge(tb_agg, on=['store', 'product', 'model_name'], how='left')
     
-    # For single-champion SKUs, keep one row; for ties, keep all with win_share
-    result = champions.copy()
+    # Build SKU-level ranking
+    def rank_one(g):
+        # Sort by total_cost_w8, then tie-breakers in order
+        sort_cols = ['total_cost_w8']
+        ascending = [True]
+        
+        for tb in tie_breakers:
+            col = f'{tb}_mean'
+            if col in g.columns:
+                sort_cols.append(col)
+                # Smaller is better for pinball/local_width; larger is better for hit_cf
+                ascending.append(False if 'hit_cf' in tb else True)
+        
+        return g.sort_values(sort_cols, ascending=ascending).assign(model_rank=np.arange(1, len(g)+1))
     
+    ranked = agg.groupby(['store', 'product'], group_keys=False).apply(rank_one)
+    
+    # Top-1 per SKU
+    top1 = ranked[ranked['model_rank'] == 1][['store', 'product', 'model_name', 'total_cost_w8']].rename(
+        columns={'model_name': 'selected_model'})
+    
+    # Save full ranking for coverage fallback
+    if output_path:
+        ranked.to_parquet(output_path.with_name(output_path.stem + '_ranking.parquet'), index=False)
+        top1.to_parquet(output_path, index=False)
+        print(f"\n✅ Saved selector map to {output_path}")
+        print(f"✅ Saved full ranking to {output_path.with_name(output_path.stem + '_ranking.parquet')}")
+    
+    # Summary stats
     print("="*70)
-    print(f"PER-SKU SELECTOR (from folds, cost_col={cost_col})")
+    print(f"PER-SKU SELECTOR (last {fold_window} folds, CF tie-breaking)")
     print("="*70)
     num_skus = agg[['store', 'product']].drop_duplicates().shape[0]
     print(f"\nTotal SKUs: {num_skus}")
-    print(f"SKUs with ties: {(n_ties > 1).sum()} / {len(champions)}")
     
-    # Aggregate win shares
-    win_counts = champions.groupby('model_name')['win_share'].sum().sort_values(ascending=False)
-    print(f"\nModel win shares (tie-adjusted):")
-    for model, share in win_counts.items():
-        pct = 100.0 * share / num_skus
-        print(f"  {model:25s}: {share:6.2f} / {num_skus} ({pct:5.1f}%)")
+    # Count selections
+    sel_counts = top1['selected_model'].value_counts().sort_values(ascending=False)
+    print(f"\nModel selection counts:")
+    for model, count in sel_counts.items():
+        pct = 100.0 * count / num_skus
+        print(f"  {model:25s}: {count:3d} / {num_skus} ({pct:5.1f}%)")
     
-    if output_path:
-        result.to_parquet(output_path, index=False)
-        print(f"\n✅ Saved to {output_path}")
-    
-    return result
+    return top1
 
 
 def select_best_models(

@@ -77,17 +77,55 @@ def build_ensemble_from_folds(
         # Load selector map
         selector = pd.read_parquet(selector_map_path)
         
-        # For ties, pick first (or could sample/blend)
-        selector_single = selector.groupby(['store', 'product']).first().reset_index()
-        selector_single = selector_single[['store', 'product', 'model_name']].rename(
-            columns={'model_name': 'selected_model'}
-        )
+        # Check column names (v1 has 'model_name', v2 has 'selected_model')
+        if 'selected_model' in selector.columns:
+            selector_single = selector[['store', 'product', 'selected_model']].copy()
+        elif 'model_name' in selector.columns:
+            # For ties, pick first (or could sample/blend)
+            selector_single = selector.groupby(['store', 'product']).first().reset_index()
+            selector_single = selector_single[['store', 'product', 'model_name']].rename(
+                columns={'model_name': 'selected_model'}
+            )
+        else:
+            raise ValueError(f"Selector map must have 'model_name' or 'selected_model' column")
         
         # Join and filter
         merged = df.merge(selector_single, on=['store', 'product'], how='inner')
         ensemble_folds = merged[merged['model_name'] == merged['selected_model']].copy()
         ensemble_folds['model_name'] = 'ensemble_selector'
         ensemble_folds = ensemble_folds.drop(columns=['selected_model'])
+        
+        # Coverage fallback: fill missing (store, product, fold_idx) with next-best models
+        keys = ['store', 'product', 'fold_idx']
+        have = set(map(tuple, ensemble_folds[keys].values))
+        all_keys = set(map(tuple, df[keys].drop_duplicates().values))
+        
+        if len(have) < len(all_keys):
+            print(f"⚠️  Coverage gap: {len(all_keys) - len(have)} missing rows; applying fallback...")
+            # Load per-SKU ranking (exported by selector function)
+            rank_path = selector_map_path.with_name(selector_map_path.stem + '_ranking.parquet')
+            if rank_path.exists():
+                rk = pd.read_parquet(rank_path)
+                missing = pd.DataFrame(list(all_keys - have), columns=keys)
+                
+                filled_rows = []
+                for _, row in missing.iterrows():
+                    sp_cand = rk[(rk['store'] == row['store']) & (rk['product'] == row['product'])].sort_values('model_rank')
+                    for _, r in sp_cand.iterrows():
+                        m = r['model_name']
+                        cand_row = df[(df['store'] == row['store']) & (df['product'] == row['product']) &
+                                      (df['fold_idx'] == row['fold_idx']) & (df['model_name'] == m)]
+                        if len(cand_row) == 1:
+                            x = cand_row.iloc[0].to_dict()
+                            x['model_name'] = 'ensemble_selector'  # keep ensemble name
+                            filled_rows.append(x)
+                            break
+                
+                if filled_rows:
+                    ensemble_folds = pd.concat([ensemble_folds, pd.DataFrame(filled_rows)], ignore_index=True)
+                    print(f"✅ Filled {len(filled_rows)} missing rows via fallback")
+            else:
+                print(f"⚠️  Ranking file not found: {rank_path}; skipping fallback")
         
     elif stage == 'cohort':
         if cohort_features_path is None or cohort_rules is None:
