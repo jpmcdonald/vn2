@@ -127,7 +127,8 @@ class ForecastPipeline:
         df: pd.DataFrame,
         master_df: Optional[pd.DataFrame],
         model_factory: callable,
-        timeout: int = 120
+        timeout: int = 120,
+        surd_transforms_df: Optional[pd.DataFrame] = None
     ) -> Dict[str, Any]:
         """
         Train a single forecast model.
@@ -138,6 +139,7 @@ class ForecastPipeline:
             master_df: Master data for hierarchy
             model_factory: Function that creates model instance
             timeout: Timeout in seconds
+            surd_transforms_df: Optional SURD transforms for SURD-aware models
             
         Returns:
             Dictionary with results
@@ -162,7 +164,14 @@ class ForecastPipeline:
                 }
             
             # Create and fit model
-            model = model_factory()
+            # Check if model factory accepts surd_transforms_df
+            import inspect
+            sig = inspect.signature(model_factory)
+            if 'surd_transforms_df' in sig.parameters and surd_transforms_df is not None:
+                model = model_factory(surd_transforms_df=surd_transforms_df)
+            else:
+                model = model_factory()
+            
             model.set_metadata('sku_id', task.sku_id)
             model.set_metadata('fold_idx', task.fold_idx)
             

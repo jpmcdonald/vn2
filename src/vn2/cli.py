@@ -336,26 +336,40 @@ def cmd_eval_models(args):
     rprint(f"   Workers: {n_jobs}")
     rprint(f"   Batch size: {args.batch_size}")
     rprint(f"   Simulations: {args.n_sims}")
+    if args.use_sip_optimization:
+        rprint(f"   [bold green]SIP Optimization: ENABLED[/bold green]")
+        rprint(f"   SIP grain: {args.sip_grain}")
     
     # Import and run
     from vn2.analyze.model_eval import run_evaluation, aggregate_results
     
     checkpoint_dir = Path('models/checkpoints')
-    demand_path = Path('data/processed/demand_imputed.parquet')
+    # Use capped demand for SIP, original for baseline
+    demand_path = Path('data/processed/demand_imputed_capped.parquet') if args.use_sip_optimization else Path('data/processed/demand_imputed.parquet')
     master_path = Path('data/processed/master.parquet')
+    state_path = Path('data/interim/state.parquet')
     output_dir = Path('models/results')
-    progress_file = Path('models/results/eval_progress.json')
+    
+    # Use versioned progress file if suffix specified
+    suffix = args.out_suffix if hasattr(args, 'out_suffix') and args.out_suffix else ""
+    progress_file = Path(f'models/results/eval_progress{suffix}.json') if suffix else Path('models/results/eval_progress.json')
     
     if args.aggregate:
         # Only aggregate
-        input_path = output_dir / "eval_folds.parquet"
+        suffix_str = f"_{suffix}" if suffix else ""
+        input_path = output_dir / f"eval_folds{suffix_str}.parquet"
         if not input_path.exists():
             rprint(f"[bold red]❌ No results file found at {input_path}[/bold red]")
             return
-        aggregate_results(input_path, output_dir)
+        aggregate_results(input_path, output_dir, out_suffix=suffix)
     else:
         # Run evaluation
         costs_dict = {'holding': 0.2, 'shortage': 1.0}
+        
+        # Filter models if specified
+        if hasattr(args, 'models') and args.models:
+            # Filter checkpoint_dir to only include specified models
+            rprint(f"   [bold yellow]Evaluating specific models: {', '.join(args.models)}[/bold yellow]")
         
         run_evaluation(
             checkpoint_dir=checkpoint_dir,
@@ -370,13 +384,18 @@ def cmd_eval_models(args):
             resume=args.resume,
             costs_dict=costs_dict,
             lead_weeks=2,
-            review_weeks=1
+            review_weeks=1,
+            use_sip=args.use_sip_optimization,
+            sip_grain=args.sip_grain,
+            state_path=state_path if args.use_sip_optimization else None,
+            out_suffix=suffix
         )
         
         # Auto-aggregate if completed
-        final_path = output_dir / "eval_folds.parquet"
+        suffix_str = f"_{suffix}" if suffix else ""
+        final_path = output_dir / f"eval_folds{suffix_str}.parquet"
         if final_path.exists():
-            aggregate_results(final_path, output_dir)
+            aggregate_results(final_path, output_dir, out_suffix=suffix)
 
 
 def cmd_forecast(args):
@@ -482,6 +501,18 @@ def cmd_forecast(args):
             stockout_aware=params.get('stockout_aware', True)
         )
     
+    def make_slurp_surd_stockout_aware(surd_transforms_df=None):
+        from vn2.forecast.models.slurp_bootstrap import SURDSLURPBootstrapForecaster
+        params = cfg['models']['slurp_surd_stockout_aware']
+        return SURDSLURPBootstrapForecaster(
+            forecast_config,
+            n_neighbors=params.get('n_neighbors', 50),
+            n_bootstrap=params.get('n_bootstrap', 1000),
+            stockout_aware=params.get('stockout_aware', True),
+            use_surd=params.get('use_surd', True),
+            surd_transforms_df=surd_transforms_df
+        )
+    
     def make_linear_quantile():
         from vn2.forecast.models.linear_quantile import LinearQuantileForecaster
         params = cfg['models']['linear_quantile']
@@ -539,6 +570,8 @@ def cmd_forecast(args):
             models['slurp_bootstrap'] = make_slurp_bootstrap
         if cfg['models'].get('slurp_stockout_aware', {}).get('enabled', False):
             models['slurp_stockout_aware'] = make_slurp_stockout_aware
+        if cfg['models'].get('slurp_surd_stockout_aware', {}).get('enabled', False):
+            models['slurp_surd_stockout_aware'] = lambda: make_slurp_surd_stockout_aware(surd_df)
         if cfg['models']['linear_quantile']['enabled']:
             models['linear_quantile'] = make_linear_quantile
         if cfg['models']['ngboost']['enabled']:
@@ -658,6 +691,11 @@ def main():
     g.add_argument("--batch-size", type=int, default=2000, help="Tasks per batch")
     g.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     g.add_argument("--aggregate", action="store_true", help="Only run aggregation")
+    g.add_argument("--use-sip-optimization", action="store_true", help="Use SIP-based optimization")
+    g.add_argument("--sip-grain", type=int, default=1000, help="PMF grain for SIP (max support)")
+    g.add_argument("--exclude-week1-cost", action="store_true", help="Exclude week 1 costs from ranking")
+    g.add_argument("--out-suffix", type=str, default="", help="Output file suffix (e.g., 'v4')")
+    g.add_argument("--models", type=str, nargs='+', help="Specific models to evaluate (default: all)")
     g.set_defaults(func=cmd_eval_models)
     
     args = p.parse_args()

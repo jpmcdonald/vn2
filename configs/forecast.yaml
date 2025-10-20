@@ -65,10 +65,17 @@ models:
     n_bootstrap: 1000
   
   slurp_stockout_aware:
+    enabled: false
+    n_neighbors: 50
+    n_bootstrap: 1000
+    stockout_aware: true
+  
+  slurp_surd_stockout_aware:
     enabled: true
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: true
+    use_surd: true
   
   linear_quantile:
     enabled: false

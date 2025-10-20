@@ -37,6 +37,10 @@ from vn2.forecast.evaluation import (
 )
 from vn2.policy.base_stock import base_stock_orders
 from vn2.sim import Simulator, Costs, LeadTime
+from vn2.analyze.sip_opt import (
+    quantiles_to_pmf, convolve_inventory, optimize_order,
+    compute_realized_metrics, Costs as SIPCosts
+)
 
 
 # Global flag for graceful shutdown
@@ -479,6 +483,87 @@ def is_degenerate_forecast(quantiles_df: pd.DataFrame) -> bool:
     return False
 
 
+def compute_sip_cost_metric(
+    y_true: np.ndarray,
+    quantiles_df: pd.DataFrame,
+    initial_state: pd.DataFrame,
+    costs: Costs,
+    sip_grain: int = 1000,
+    exclude_week1: bool = True
+) -> Dict[str, float]:
+    """
+    Compute cost-based metrics using SIP optimization.
+    
+    Uses PMF convolution to optimize integer order quantity for week 2,
+    accounting for uncertainty in both demand and inventory levels.
+    
+    Args:
+        y_true: Actual realized demand [y1, y2]
+        quantiles_df: Forecast quantiles (index=step, columns=quantile_levels)
+        initial_state: Starting inventory (on_hand, intransit_1, intransit_2)
+        costs: Cost parameters
+        sip_grain: Maximum support for PMF (0 to grain)
+        exclude_week1: If True, only compute costs for week 2
+    
+    Returns:
+        Dictionary with SIP-based cost metrics
+    """
+    # Extract initial state
+    I0 = int(initial_state["on_hand"].iloc[0])
+    Q1 = int(initial_state["intransit_1"].iloc[0])  # Arrives at start of week 1
+    Q2 = int(initial_state["intransit_2"].iloc[0])  # Arrives at start of week 2
+    
+    # Convert costs to SIP format
+    sip_costs = SIPCosts(holding=costs.holding, shortage=costs.shortage)
+    
+    # Extract quantile levels and values
+    quantile_levels = quantiles_df.columns.values
+    
+    # Build PMFs for h=1 and h=2
+    if 1 not in quantiles_df.index or 2 not in quantiles_df.index:
+        return {
+            'sip_order_qty': None,
+            'sip_expected_cost': None,
+            'sip_realized_cost_w2': None,
+            'sip_holding_cost_w2': None,
+            'sip_shortage_cost_w2': None,
+            'sip_service_level_w2': None,
+            'sip_fill_rate_w2': None,
+            'sip_regret_qty': None
+        }
+    
+    q1_vals = quantiles_df.loc[1].values
+    q2_vals = quantiles_df.loc[2].values
+    
+    pmf_D1 = quantiles_to_pmf(q1_vals, quantile_levels, grain=sip_grain)
+    pmf_D2 = quantiles_to_pmf(q2_vals, quantile_levels, grain=sip_grain)
+    
+    # Compute end-of-week-1 inventory distribution
+    pmf_I1_end = convolve_inventory(I0, Q1, pmf_D1)
+    
+    # Optimize order quantity for week 2
+    Q_opt, expected_cost = optimize_order(pmf_I1_end, Q2, pmf_D2, sip_costs, max_Q=sip_grain)
+    
+    # Compute realized metrics using actual demand
+    y1_true = int(np.round(y_true[0]))
+    y2_true = int(np.round(y_true[1])) if len(y_true) > 1 else 0
+    
+    realized_metrics = compute_realized_metrics(
+        Q_opt, I0, Q1, Q2, y1_true, y2_true, sip_costs
+    )
+    
+    return {
+        'sip_order_qty': float(Q_opt),
+        'sip_expected_cost': float(expected_cost),
+        'sip_realized_cost_w2': realized_metrics['realized_cost_w2'],
+        'sip_holding_cost_w2': realized_metrics['holding_cost_w2'],
+        'sip_shortage_cost_w2': realized_metrics['shortage_cost_w2'],
+        'sip_service_level_w2': realized_metrics['service_level_w2'],
+        'sip_fill_rate_w2': realized_metrics['fill_rate_w2'],
+        'sip_regret_qty': realized_metrics['regret_qty']
+    }
+
+
 def evaluate_one(
     task: EvalTask,
     df: pd.DataFrame,
@@ -490,7 +575,10 @@ def evaluate_one(
     n_sims: int,
     seed: int,
     realized_cost: bool = True,
-    skip_degenerate: bool = True
+    skip_degenerate: bool = True,
+    use_sip: bool = False,
+    sip_grain: int = 1000,
+    state_df: Optional[pd.DataFrame] = None
 ) -> Optional[Dict[str, Any]]:
     """Evaluate a single (model, SKU, fold) combination"""
     
@@ -563,14 +651,44 @@ def evaluate_one(
         newsvendor_metrics = compute_newsvendor_metrics(y_true, quantiles_df, costs)
         result.update(newsvendor_metrics)
         
-        # Cost metrics
-        # Create simple initial state (zero inventory for fair comparison)
-        initial_state = pd.DataFrame({
-            'on_hand': [0],
-            'intransit_1': [0],
-            'intransit_2': [0]
-        }, index=[(task.store, task.product)])
+        # Cost metrics - determine initial state
+        if use_sip and state_df is not None:
+            # Use actual initial state from state.parquet
+            # State is indexed by (store, product, week)
+            # For fold_idx, we need the state at the origin of that fold
+            fold_origin_week = task.fold_idx
+            state_key = (task.store, task.product, fold_origin_week)
+            
+            if state_key in state_df.index:
+                state_row = state_df.loc[state_key]
+                initial_state = pd.DataFrame({
+                    'on_hand': [state_row['on_hand']],
+                    'intransit_1': [state_row.get('intransit_1', 0)],
+                    'intransit_2': [state_row.get('intransit_2', 0)]
+                }, index=[(task.store, task.product)])
+            else:
+                # Fallback to zero state if not found
+                initial_state = pd.DataFrame({
+                    'on_hand': [0],
+                    'intransit_1': [0],
+                    'intransit_2': [0]
+                }, index=[(task.store, task.product)])
+        else:
+            # Zero inventory baseline for non-SIP evaluation
+            initial_state = pd.DataFrame({
+                'on_hand': [0],
+                'intransit_1': [0],
+                'intransit_2': [0]
+            }, index=[(task.store, task.product)])
         
+        # Compute SIP-based cost if requested
+        if use_sip:
+            sip_metrics = compute_sip_cost_metric(
+                y_true, quantiles_df, initial_state, costs, sip_grain, exclude_week1=True
+            )
+            result.update(sip_metrics)
+        
+        # Also compute traditional cost metrics for comparison
         cost_metrics = compute_cost_metric(
             y_true, quantiles_df, initial_state, costs, lt, n_sims, seed + task.fold_idx, realized_cost
         )
@@ -631,7 +749,10 @@ def run_evaluation(
     review_weeks: int = 1,
     realized_cost: bool = True,
     skip_degenerate: bool = True,
-    out_suffix: str = ""
+    out_suffix: str = "",
+    use_sip: bool = False,
+    sip_grain: int = 1000,
+    state_path: Optional[Path] = None
 ):
     """Run full evaluation with batching and checkpointing"""
     
@@ -644,6 +765,17 @@ def run_evaluation(
     df = pd.read_parquet(demand_path)
     master_df = pd.read_parquet(master_path) if master_path and master_path.exists() else None
     
+    # Load state data if using SIP
+    state_df = None
+    if use_sip and state_path and state_path.exists():
+        print(f"📦 Loading initial state from {state_path}...")
+        state_df = pd.read_parquet(state_path)
+        # Ensure proper indexing for fast lookup
+        if not isinstance(state_df.index, pd.MultiIndex):
+            # Assume columns are store, product, week
+            if 'store' in state_df.columns and 'product' in state_df.columns:
+                state_df = state_df.set_index(['store', 'product', 'week'])
+    
     # Setup costs
     if costs_dict is None:
         costs_dict = {'holding': 0.2, 'shortage': 1.0}
@@ -653,8 +785,10 @@ def run_evaluation(
     # Load progress
     progress = ProgressTracker(progress_file)
     
-    # Find all models
-    models = [d.name for d in checkpoint_dir.iterdir() if d.is_dir()]
+    # Find all models (or filter if specified)
+    all_models = [d.name for d in checkpoint_dir.iterdir() if d.is_dir()]
+    # Model filtering would need to be passed as parameter - for now use all
+    models = all_models
     print(f"🤖 Found {len(models)} models: {models}")
     
     # Generate tasks
@@ -689,7 +823,8 @@ def run_evaluation(
         batch_results = Parallel(n_jobs=n_jobs, backend='loky', verbose=5)(
             delayed(evaluate_one)(
                 task, df, master_df, checkpoint_dir, holdout_weeks,
-                costs, lt, n_sims, 42, realized_cost, skip_degenerate
+                costs, lt, n_sims, 42, realized_cost, skip_degenerate,
+                use_sip, sip_grain, state_df
             ) for task in batch_tasks
         )
         
@@ -777,6 +912,14 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
         'cf_asymmetry_h2': 'mean',
         'asymmetric_loss_h1': 'sum',
         'asymmetric_loss_h2': 'sum',
+        # SIP metrics
+        'sip_expected_cost': 'sum',
+        'sip_realized_cost_w2': 'sum',
+        'sip_holding_cost_w2': 'sum',
+        'sip_shortage_cost_w2': 'sum',
+        'sip_service_level_w2': 'mean',
+        'sip_fill_rate_w2': 'mean',
+        'sip_regret_qty': 'sum',
         'fold_idx': 'count'  # Number of folds
     }
     
@@ -798,7 +941,10 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     for col in agg_df.columns:
         if col in ['model_name', 'store', 'product', 'n_folds']:
             continue
-        elif col in ['expected_cost', 'shortage_cost', 'holding_cost', 'regret_qty', 'asymmetric_loss_h1', 'asymmetric_loss_h2']:
+        elif col in ['expected_cost', 'shortage_cost', 'holding_cost', 'regret_qty', 
+                     'asymmetric_loss_h1', 'asymmetric_loss_h2',
+                     'sip_expected_cost', 'sip_realized_cost_w2', 
+                     'sip_holding_cost_w2', 'sip_shortage_cost_w2', 'sip_regret_qty']:
             # TOTAL cost across all SKUs
             overall_agg[col] = 'sum'
         else:
@@ -807,9 +953,10 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     
     overall = agg_df.groupby('model_name').agg(overall_agg).reset_index()
     
-    # Rank by total cost
-    if 'expected_cost' in overall.columns:
-        overall = overall.sort_values('expected_cost')
+    # Rank by SIP cost if available, otherwise expected_cost
+    rank_col = 'sip_realized_cost_w2' if 'sip_realized_cost_w2' in overall.columns else 'expected_cost'
+    if rank_col in overall.columns:
+        overall = overall.sort_values(rank_col)
     
     leaderboard_path = output_dir / f"leaderboards{suffix}.parquet"
     overall.to_parquet(leaderboard_path)
@@ -817,20 +964,27 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     
     # Print summary
     print(f"\n{'='*60}")
-    print("🏆 Overall Leaderboard (by TOTAL expected cost)")
+    rank_label = "SIP realized cost (week 2)" if rank_col == 'sip_realized_cost_w2' else "TOTAL expected cost"
+    print(f"🏆 Overall Leaderboard (by {rank_label})")
     print(f"{'='*60}")
+    
+    # Build display columns
+    display_cols = ['model_name']
+    if 'sip_realized_cost_w2' in overall.columns:
+        display_cols.extend(['sip_realized_cost_w2', 'sip_service_level_w2', 'sip_fill_rate_w2'])
     if 'expected_cost' in overall.columns:
-        display_cols = ['model_name', 'expected_cost', 'mae']
-        if 'pinball_cf_h1' in overall.columns:
-            display_cols.append('pinball_cf_h1')
-        if 'hit_cf_h1' in overall.columns:
-            display_cols.append('hit_cf_h1')
-        if 'service_level' in overall.columns:
-            display_cols.append('service_level')
+        display_cols.append('expected_cost')
+    if 'mae' in overall.columns:
+        display_cols.append('mae')
+    if 'pinball_cf_h1' in overall.columns:
+        display_cols.append('pinball_cf_h1')
+    if 'service_level' in overall.columns:
+        display_cols.append('service_level')
+    if 'coverage_90' in overall.columns:
         display_cols.append('coverage_90')
-        
-        display_cols = [c for c in display_cols if c in overall.columns]
-        print(overall[display_cols].to_string(index=False))
+    
+    display_cols = [c for c in display_cols if c in overall.columns]
+    print(overall[display_cols].to_string(index=False))
 
 
 def main():

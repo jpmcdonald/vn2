@@ -7,13 +7,16 @@ Samples from similar historical observations based on features like:
 - Rolling CV (volatility)
 - Trend
 - Recent demand patterns
+
+Includes SURD-aware variant that operates in variance-stabilized transform space.
 """
 
 import numpy as np
 import pandas as pd
-from typing import Optional
+from typing import Optional, Tuple
 from sklearn.neighbors import NearestNeighbors
 from .base import BaseForecaster, ForecastConfig
+from vn2.forecast.transforms import apply_transform, inverse_transform
 
 
 class SLURPBootstrapForecaster(BaseForecaster):
@@ -254,6 +257,288 @@ class SLURPBootstrapForecaster(BaseForecaster):
             # Compute quantiles
             quantile_values = np.quantile(bootstrap_samples, self.config.quantiles)
             quantiles_dict[step] = quantile_values
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(quantiles_dict, index=self.config.quantiles).T
+        df.index.name = 'step'
+        
+        return df
+
+
+class SURDSLURPBootstrapForecaster(BaseForecaster):
+    """
+    SURD-aware SLURP Conditional Bootstrap forecaster.
+    
+    Combines variance-stabilizing transforms (SURD) with stockout-aware
+    conditional bootstrap for improved uncertainty quantification.
+    
+    Key features:
+    - Operates in transform space (log, sqrt, cbrt, log1p, or identity)
+    - Per-SKU transform selection from SURD analysis
+    - Stockout-aware sampling in transform space
+    - Bias-corrected back-transformation (Jensen's inequality)
+    """
+    
+    def __init__(
+        self,
+        config: ForecastConfig,
+        n_neighbors: int = 50,
+        n_bootstrap: int = 1000,
+        stockout_aware: bool = True,
+        use_surd: bool = True,
+        surd_transforms_df: Optional[pd.DataFrame] = None
+    ):
+        """
+        Args:
+            config: Forecast configuration
+            n_neighbors: Number of similar historical observations to sample from
+            n_bootstrap: Number of bootstrap samples for quantile estimation
+            stockout_aware: If True, handle stockouts as censored observations
+            use_surd: If True, use SURD transforms
+            surd_transforms_df: DataFrame with columns ['Store', 'Product', 'best_transform']
+        """
+        super().__init__(config, name="SURD_SLURP_Bootstrap")
+        self.n_neighbors = n_neighbors
+        self.n_bootstrap = n_bootstrap
+        self.stockout_aware = stockout_aware
+        self.use_surd = use_surd
+        self.surd_transforms = surd_transforms_df
+        
+        # Will be set during fit
+        self.transform_name = 'identity'
+        self.history_y_trans = None
+        self.history_X = None
+        self.history_in_stock = None
+        self.nn_model = None
+        self.sku_id = None
+        
+    def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'SURDSLURPBootstrapForecaster':
+        """
+        Fit by storing transformed historical observations for bootstrap sampling.
+        
+        Args:
+            y: Time series of demand
+            X: Feature matrix (calendar, lags, rolling stats)
+                If stockout_aware=True, X must contain 'in_stock' column
+        """
+        # Extract SKU ID from index
+        if hasattr(y.index, 'names') and len(y.index.names) >= 2:
+            # MultiIndex: (store, product, ...)
+            self.sku_id = (y.index[0][0], y.index[0][1])
+        elif hasattr(y, 'name') and isinstance(y.name, tuple) and len(y.name) >= 2:
+            self.sku_id = (y.name[0], y.name[1])
+        else:
+            # Fallback: no transform
+            self.sku_id = None
+        
+        # Get SKU's optimal transform from SURD analysis
+        if self.use_surd and self.surd_transforms is not None and self.sku_id is not None:
+            try:
+                if isinstance(self.surd_transforms.index, pd.MultiIndex):
+                    self.transform_name = self.surd_transforms.loc[self.sku_id, 'best_transform']
+                else:
+                    # Try to find by matching Store and Product columns
+                    mask = (self.surd_transforms['Store'] == self.sku_id[0]) & \
+                           (self.surd_transforms['Product'] == self.sku_id[1])
+                    if mask.any():
+                        self.transform_name = self.surd_transforms.loc[mask, 'best_transform'].iloc[0]
+            except (KeyError, IndexError):
+                # SKU not found in SURD transforms, use identity
+                self.transform_name = 'identity'
+        else:
+            self.transform_name = 'identity'
+        
+        # Transform demand to variance-stabilized space
+        y_values = y.values
+        self.history_y_trans = apply_transform(y_values, self.transform_name)
+        
+        # Store stockout indicators if available
+        if self.stockout_aware and X is not None and 'in_stock' in X.columns:
+            # Align in_stock with y
+            if len(X) != len(y):
+                X = X.loc[y.index]
+                if not X.index.is_unique:
+                    X = X[~X.index.duplicated(keep='last')]
+            
+            self.history_in_stock = X['in_stock'].values
+        else:
+            self.history_in_stock = None
+        
+        if X is not None and len(X) > 0:
+            # Align X with y
+            if len(X) != len(y):
+                X = X.loc[y.index]
+                if not X.index.is_unique:
+                    X = X[~X.index.duplicated(keep='last')]
+            
+            if len(X) != len(y):
+                raise ValueError(f"X and y length mismatch after alignment: X={len(X)}, y={len(y)}")
+            
+            # Use features for conditional sampling
+            X_vals = X.fillna(X.mean()).values
+            X_vals = np.nan_to_num(X_vals, nan=0.0)
+            
+            self.history_X = X_vals
+            
+            # Fit k-NN model for finding similar observations
+            self.nn_model = NearestNeighbors(
+                n_neighbors=min(self.n_neighbors, len(y)),
+                metric='euclidean'
+            )
+            self.nn_model.fit(self.history_X)
+        else:
+            self.history_X = None
+            self.nn_model = None
+        
+        self.is_fitted_ = True
+        return self
+    
+    def _stockout_aware_sample_trans(
+        self,
+        candidate_indices: np.ndarray,
+        rng: np.random.Generator
+    ) -> np.ndarray:
+        """
+        Bootstrap sample in transform space with stockout awareness.
+        
+        For stockout observations, sample from the conditional distribution
+        of observed positive demand (in transform space) instead of using
+        the (censored) transformed value.
+        
+        Args:
+            candidate_indices: Indices to sample from (neighbors or all history)
+            rng: Random number generator
+            
+        Returns:
+            Bootstrap samples in transform space (n_bootstrap,)
+        """
+        bootstrap_samples = []
+        
+        # Get in-stock observations from candidates
+        in_stock_mask = self.history_in_stock[candidate_indices]
+        in_stock_indices = candidate_indices[in_stock_mask]
+        stockout_indices = candidate_indices[~in_stock_mask]
+        
+        n_in_stock = len(in_stock_indices)
+        n_stockout = len(stockout_indices)
+        
+        if n_in_stock == 0:
+            # No in-stock observations, fall back to simple sampling
+            return rng.choice(self.history_y_trans[candidate_indices], size=self.n_bootstrap, replace=True)
+        
+        # Sample maintaining the stockout rate
+        stockout_rate = n_stockout / len(candidate_indices) if len(candidate_indices) > 0 else 0
+        n_stockout_samples = int(self.n_bootstrap * stockout_rate)
+        n_instock_samples = self.n_bootstrap - n_stockout_samples
+        
+        # Sample in-stock observations normally (in transform space)
+        if n_instock_samples > 0:
+            instock_samples = rng.choice(
+                self.history_y_trans[in_stock_indices],
+                size=n_instock_samples,
+                replace=True
+            )
+            bootstrap_samples.extend(instock_samples)
+        
+        # For stockouts, sample from positive transformed values
+        if n_stockout_samples > 0:
+            # Get positive in-stock values in transform space
+            positive_instock_trans = self.history_y_trans[in_stock_indices]
+            
+            # For log-type transforms, "positive" means > some threshold
+            # For others, just use all in-stock values
+            if self.transform_name in ['log', 'log1p']:
+                # In log space, we want values corresponding to positive demand
+                # log(x) > log(eps) means x > eps
+                threshold = np.log(1e-6) if self.transform_name == 'log' else np.log1p(0)
+                positive_instock_trans = positive_instock_trans[positive_instock_trans > threshold]
+            
+            if len(positive_instock_trans) == 0:
+                # No positive values, use all in-stock
+                positive_instock_trans = self.history_y_trans[in_stock_indices]
+            
+            if len(positive_instock_trans) > 0:
+                stockout_samples = rng.choice(
+                    positive_instock_trans,
+                    size=n_stockout_samples,
+                    replace=True
+                )
+                bootstrap_samples.extend(stockout_samples)
+            else:
+                # Fallback: use median of all transformed values
+                fallback_value = np.median(self.history_y_trans[candidate_indices])
+                bootstrap_samples.extend([fallback_value] * n_stockout_samples)
+        
+        return np.array(bootstrap_samples)
+    
+    def predict_quantiles(
+        self,
+        steps: int = 2,
+        X_future: Optional[pd.DataFrame] = None
+    ) -> pd.DataFrame:
+        """
+        Generate quantile forecasts via conditional bootstrap in transform space.
+        
+        Args:
+            steps: Number of steps ahead (1-2)
+            X_future: Future features for conditional sampling
+            
+        Returns:
+            DataFrame with index=steps and columns=quantiles (in original space)
+        """
+        if not self.is_fitted_:
+            raise ValueError("Model not fitted. Call .fit() first.")
+        
+        rng = np.random.default_rng(self.config.random_state)
+        
+        quantiles_dict = {}
+        
+        for step in range(1, steps + 1):
+            if self.nn_model is not None and X_future is not None and len(X_future) >= step:
+                # Conditional bootstrap: find similar historical observations
+                idx = min(step - 1, len(X_future) - 1)
+                future_features = X_future.iloc[idx:idx+1].fillna(X_future.mean()).values
+                future_features = np.nan_to_num(future_features, nan=0.0)
+                
+                # Find k-nearest neighbors
+                distances, indices = self.nn_model.kneighbors(future_features)
+                neighbor_indices = indices[0]
+                
+                # Sample in transform space
+                if self.stockout_aware and self.history_in_stock is not None:
+                    bootstrap_samples_trans = self._stockout_aware_sample_trans(
+                        neighbor_indices, rng
+                    )
+                else:
+                    bootstrap_samples_trans = rng.choice(
+                        self.history_y_trans[neighbor_indices],
+                        size=self.n_bootstrap,
+                        replace=True
+                    )
+            else:
+                # Unconditional bootstrap from all history
+                if self.stockout_aware and self.history_in_stock is not None:
+                    bootstrap_samples_trans = self._stockout_aware_sample_trans(
+                        np.arange(len(self.history_y_trans)), rng
+                    )
+                else:
+                    bootstrap_samples_trans = rng.choice(
+                        self.history_y_trans,
+                        size=self.n_bootstrap,
+                        replace=True
+                    )
+            
+            # Compute quantiles in transform space
+            quantiles_trans = np.quantile(bootstrap_samples_trans, self.config.quantiles)
+            
+            # Back-transform (no bias correction for quantiles)
+            # Bias correction only applies to means, not quantiles
+            quantiles_raw = inverse_transform(quantiles_trans, self.transform_name, variance_trans=None)
+            
+            # Ensure non-negative
+            quantiles_raw = np.maximum(quantiles_raw, 0)
+            
+            quantiles_dict[step] = quantiles_raw
         
         # Convert to DataFrame
         df = pd.DataFrame(quantiles_dict, index=self.config.quantiles).T
