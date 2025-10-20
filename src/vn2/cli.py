@@ -411,18 +411,29 @@ def cmd_forecast(args):
     
     rprint("[bold blue]📈 Starting forecast model training...[/bold blue]")
     
-    # Load data (use capped data to avoid extreme outliers)
-    demand_path = Path(cfg['paths']['processed']) / 'demand_imputed_capped.parquet'
+    # Load data - different sources for SLURP vs challengers
+    # SLURP models: raw data with in_stock flag (no imputation, handles censoring)
+    # Other models: winsorized imputed data (stable, no extreme outliers)
+    demand_raw_path = Path(cfg['paths']['processed']) / 'demand_long.parquet'
+    demand_winsor_path = Path(cfg['paths']['processed']) / 'demand_imputed_winsor.parquet'
     master_path = Path(cfg['paths']['processed']) / 'master.parquet'
     surd_path = Path(cfg['paths']['processed']) / 'surd_transforms.parquet'
     
-    if not demand_path.exists():
-        rprint(f"[bold red]Error: {demand_path} not found. Run imputation first.[/bold red]")
+    # Load both datasets
+    if not demand_raw_path.exists():
+        rprint(f"[bold red]Error: {demand_raw_path} not found.[/bold red]")
+        return
+    if not demand_winsor_path.exists():
+        rprint(f"[bold red]Error: {demand_winsor_path} not found. Run winsorization script.[/bold red]")
         return
     
-    df = pd.read_parquet(demand_path)
+    df_raw = pd.read_parquet(demand_raw_path)
+    df_winsor = pd.read_parquet(demand_winsor_path)
     master_df = pd.read_parquet(master_path) if master_path.exists() else None
     surd_df = pd.read_parquet(surd_path) if surd_path.exists() else None
+    
+    # Default to winsorized for non-SLURP models
+    df = df_winsor
     
     rprint(f"📊 Data loaded:")
     rprint(f"   Observations: {len(df):,}")
@@ -554,6 +565,44 @@ def cmd_forecast(args):
             lookback_weeks=params.get('lookback_weeks', 13)
         )
     
+    def make_lightgbm_point():
+        """LightGBM deterministic (MSE) for point forecast baseline"""
+        from vn2.forecast.models.lightgbm_point import LightGBMPointForecaster
+        params = cfg['models']['lightgbm_point']
+        return LightGBMPointForecaster(
+            forecast_config,
+            max_depth=params.get('max_depth', 6),
+            num_leaves=params.get('num_leaves', 31),
+            learning_rate=params.get('learning_rate', 0.05),
+            n_estimators=params.get('n_estimators', 100),
+            min_data_in_leaf=params.get('min_data_in_leaf', 20)
+        )
+    
+    def make_qrf():
+        """Quantile Random Forest"""
+        from vn2.forecast.models.qrf import QRFForecaster
+        params = cfg['models']['qrf']
+        return QRFForecaster(
+            forecast_config,
+            n_estimators=params.get('n_estimators', 100),
+            max_depth=params.get('max_depth', 10),
+            min_samples_leaf=params.get('min_samples_leaf', 5)
+        )
+    
+    def make_glm_poisson():
+        """GLM with Poisson family"""
+        from vn2.forecast.models.glm_count import GLMCountForecaster
+        if 'glm_poisson' not in cfg['models']:
+            cfg['models']['glm_poisson'] = {}
+        return GLMCountForecaster(forecast_config, family='poisson')
+    
+    def make_glm_negbin():
+        """GLM with Negative Binomial family"""
+        from vn2.forecast.models.glm_count import GLMCountForecaster
+        if 'glm_negbin' not in cfg['models']:
+            cfg['models']['glm_negbin'] = {}
+        return GLMCountForecaster(forecast_config, family='negbin')
+    
     # Select models
     if args.pilot:
         models = {
@@ -593,6 +642,14 @@ def cmd_forecast(args):
             models['ngboost'] = make_ngboost
         if cfg['models']['knn_profile']['enabled']:
             models['knn_profile'] = make_knn_profile
+        if cfg['models'].get('lightgbm_point', {}).get('enabled', False):
+            models['lightgbm_point'] = make_lightgbm_point
+        if cfg['models'].get('qrf', {}).get('enabled', False):
+            models['qrf'] = make_qrf
+        if cfg['models'].get('glm_poisson', {}).get('enabled', False):
+            models['glm_poisson'] = make_glm_poisson
+        if cfg['models'].get('glm_negbin', {}).get('enabled', False):
+            models['glm_negbin'] = make_glm_negbin
     
     rprint(f"\n🤖 Models to train: {list(models.keys())}")
     
@@ -617,13 +674,41 @@ def cmd_forecast(args):
     rprint(f"⏱️  Timeout per fit: {cfg['compute']['timeout_per_fit']}s")
     rprint("\n[cyan]Starting training...[/cyan]\n")
     
-    results_df = pipeline.train_all(
-        df,
-        models,
-        master_df=master_df,
-        n_jobs=n_jobs,
-        pilot_skus=pilot_skus
-    )
+    # Train SLURP models on raw data, others on winsorized
+    slurp_models = {k: v for k, v in models.items() if 'slurp' in k.lower()}
+    other_models = {k: v for k, v in models.items() if 'slurp' not in k.lower()}
+    
+    results_dfs = []
+    
+    if slurp_models:
+        rprint(f"[bold green]Training SLURP models on raw data (censoring-aware):[/bold green] {list(slurp_models.keys())}")
+        results_slurp = pipeline.train_all(
+            df_raw,
+            slurp_models,
+            master_df=master_df,
+            n_jobs=n_jobs,
+            pilot_skus=pilot_skus
+        )
+        results_dfs.append(results_slurp)
+    
+    if other_models:
+        rprint(f"\n[bold blue]Training challenger models on winsorized data:[/bold blue] {list(other_models.keys())}")
+        results_other = pipeline.train_all(
+            df_winsor,
+            other_models,
+            master_df=master_df,
+            n_jobs=n_jobs,
+            pilot_skus=pilot_skus
+        )
+        results_dfs.append(results_other)
+    
+    # Combine results
+    if len(results_dfs) > 1:
+        results_df = pd.concat(results_dfs, ignore_index=True)
+    elif len(results_dfs) == 1:
+        results_df = results_dfs[0]
+    else:
+        results_df = pd.DataFrame()
     
     rprint(f"\n[bold green]✅ Training complete![/bold green]")
     rprint(f"   Results saved to: {cfg['paths']['results']}/training_results.parquet")

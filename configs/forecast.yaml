@@ -45,7 +45,7 @@ models:
     type: negbin
   
   lightgbm_quantile:
-    enabled: false
+    enabled: true
     max_depth: 6
     num_leaves: 31
     learning_rate: 0.05
@@ -53,7 +53,7 @@ models:
     min_data_in_leaf: 20
   
   ets:
-    enabled: false
+    enabled: true
     error: add
     trend: null
     seasonal: null
@@ -85,12 +85,12 @@ models:
     use_surd: true
   
   linear_quantile:
-    enabled: false
+    enabled: true
     alpha: 1.0
     solver: highs
   
   ngboost:
-    enabled: false
+    enabled: true
     dist: LogNormal
     n_estimators: 100
     learning_rate: 0.01
@@ -99,6 +99,27 @@ models:
     enabled: false
     n_neighbors: 20
     lookback_weeks: 13
+  
+  # New challenger models for Jensen study
+  lightgbm_point:
+    enabled: true
+    max_depth: 6
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 100
+    min_data_in_leaf: 20
+  
+  qrf:
+    enabled: true
+    n_estimators: 100
+    max_depth: 10
+    min_samples_leaf: 5
+  
+  glm_poisson:
+    enabled: false  # TODO: Debug pipeline integration
+  
+  glm_negbin:
+    enabled: false  # TODO: Debug pipeline integration
 
 # Pilot test configuration
 pilot:
