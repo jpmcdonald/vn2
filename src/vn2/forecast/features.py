@@ -270,6 +270,10 @@ def create_features(
     X = pd.concat(features, axis=1)
     X.index = sku_df.index
     
+    # Add in_stock indicator if available (for stockout-aware models)
+    if 'in_stock' in sku_df.columns:
+        X['in_stock'] = sku_df['in_stock'].values
+    
     # Add hierarchy features if available
     if master_df is not None:
         hierarchy = master_df[

@@ -468,7 +468,18 @@ def cmd_forecast(args):
         return SLURPBootstrapForecaster(
             forecast_config,
             n_neighbors=params.get('n_neighbors', 50),
-            n_bootstrap=params.get('n_bootstrap', 1000)
+            n_bootstrap=params.get('n_bootstrap', 1000),
+            stockout_aware=False
+        )
+    
+    def make_slurp_stockout_aware():
+        from vn2.forecast.models.slurp_bootstrap import SLURPBootstrapForecaster
+        params = cfg['models']['slurp_stockout_aware']
+        return SLURPBootstrapForecaster(
+            forecast_config,
+            n_neighbors=params.get('n_neighbors', 50),
+            n_bootstrap=params.get('n_bootstrap', 1000),
+            stockout_aware=params.get('stockout_aware', True)
         )
     
     def make_linear_quantile():
@@ -526,6 +537,8 @@ def cmd_forecast(args):
             models['ets'] = make_ets
         if cfg['models']['slurp_bootstrap']['enabled']:
             models['slurp_bootstrap'] = make_slurp_bootstrap
+        if cfg['models'].get('slurp_stockout_aware', {}).get('enabled', False):
+            models['slurp_stockout_aware'] = make_slurp_stockout_aware
         if cfg['models']['linear_quantile']['enabled']:
             models['linear_quantile'] = make_linear_quantile
         if cfg['models']['ngboost']['enabled']:
