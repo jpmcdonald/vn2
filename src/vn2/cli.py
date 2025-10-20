@@ -411,8 +411,8 @@ def cmd_forecast(args):
     
     rprint("[bold blue]📈 Starting forecast model training...[/bold blue]")
     
-    # Load data
-    demand_path = Path(cfg['paths']['processed']) / 'demand_imputed.parquet'
+    # Load data (use capped data to avoid extreme outliers)
+    demand_path = Path(cfg['paths']['processed']) / 'demand_imputed_capped.parquet'
     master_path = Path(cfg['paths']['processed']) / 'master.parquet'
     surd_path = Path(cfg['paths']['processed']) / 'surd_transforms.parquet'
     
@@ -489,6 +489,19 @@ def cmd_forecast(args):
             n_neighbors=params.get('n_neighbors', 50),
             n_bootstrap=params.get('n_bootstrap', 1000),
             stockout_aware=False
+        )
+    
+    def make_slurp_surd(surd_transforms_df=None):
+        """SLURP with SURD transforms, NO stockout handling"""
+        from vn2.forecast.models.slurp_bootstrap import SURDSLURPBootstrapForecaster
+        params = cfg['models']['slurp_surd']
+        return SURDSLURPBootstrapForecaster(
+            forecast_config,
+            n_neighbors=params.get('n_neighbors', 50),
+            n_bootstrap=params.get('n_bootstrap', 1000),
+            stockout_aware=False,  # KEY: No stockout handling
+            use_surd=True,          # KEY: Yes SURD transforms
+            surd_transforms_df=surd_transforms_df
         )
     
     def make_slurp_stockout_aware():
@@ -568,6 +581,8 @@ def cmd_forecast(args):
             models['ets'] = make_ets
         if cfg['models']['slurp_bootstrap']['enabled']:
             models['slurp_bootstrap'] = make_slurp_bootstrap
+        if cfg['models'].get('slurp_surd', {}).get('enabled', False):
+            models['slurp_surd'] = lambda: make_slurp_surd(surd_df)
         if cfg['models'].get('slurp_stockout_aware', {}).get('enabled', False):
             models['slurp_stockout_aware'] = make_slurp_stockout_aware
         if cfg['models'].get('slurp_surd_stockout_aware', {}).get('enabled', False):

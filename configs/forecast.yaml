@@ -60,18 +60,25 @@ models:
     seasonal_periods: 52
   
   slurp_bootstrap:
-    enabled: false
+    enabled: true
     n_neighbors: 50
     n_bootstrap: 1000
   
+  slurp_surd:
+    enabled: true
+    n_neighbors: 50
+    n_bootstrap: 1000
+    stockout_aware: false
+    use_surd: true
+  
   slurp_stockout_aware:
-    enabled: false
+    enabled: true
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: true
   
   slurp_surd_stockout_aware:
-    enabled: true
+    enabled: false
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: true
