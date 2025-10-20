@@ -6,7 +6,7 @@ PMF convolution to handle uncertainty in both demand and inventory levels.
 """
 
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
 
 
@@ -248,4 +248,101 @@ def compute_realized_metrics(
         'sales_w1': sales_1,
         'sales_w2': sales_2,
     }
+
+
+def cost_curve_vs_Q(
+    pmf_h1: np.ndarray,
+    pmf_h2: np.ndarray,
+    I0: int,
+    Q1: int,
+    costs: Costs,
+    Q_max: Optional[int] = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute expected cost curve over integer order quantities Q.
+    
+    Args:
+        pmf_h1: PMF for horizon 1 demand
+        pmf_h2: PMF for horizon 2 demand
+        I0: Initial inventory
+        Q1: Order arriving at start of week 1
+        costs: Cost parameters
+        Q_max: Maximum Q to evaluate (default: len(pmf_h2))
+    
+    Returns:
+        Q_grid: array of order quantities
+        expected_costs: array of expected costs for each Q
+    """
+    if Q_max is None:
+        Q_max = len(pmf_h2) - 1
+    
+    Q_grid = np.arange(0, Q_max + 1)
+    expected_costs = np.zeros(len(Q_grid))
+    
+    for i, Q in enumerate(Q_grid):
+        # Compute expected cost for this Q
+        # Convolve inventory after week 1 with demand in week 2
+        I1_pmf = convolve_inventory(I0, Q1, pmf_h1)
+        I2_pmf = convolve_inventory_dist(I1_pmf, Q, pmf_h2)
+        
+        # Expected holding cost
+        support_I2 = np.arange(len(I2_pmf))
+        E_holding = costs.holding * np.dot(I2_pmf, support_I2)
+        
+        # Expected shortage cost
+        # Shortage = max(0, demand - inventory_before_demand)
+        # For each possible I2_start, compute expected shortage over demand
+        I2_start_pmf = convolve_inventory_dist(I1_pmf, Q, np.ones(1))  # I1 + Q (deterministic Q)
+        support_I2_start = np.arange(len(I2_start_pmf))
+        
+        E_shortage = 0.0
+        for I2_start, p_I2_start in zip(support_I2_start, I2_start_pmf):
+            if p_I2_start > 0:
+                # E[max(0, D - I2_start)]
+                support_D = np.arange(len(pmf_h2))
+                shortage_vals = np.maximum(0, support_D - I2_start)
+                E_shortage += p_I2_start * costs.shortage * np.dot(pmf_h2, shortage_vals)
+        
+        expected_costs[i] = E_holding + E_shortage
+    
+    return Q_grid, expected_costs
+
+
+def convolve_inventory_dist(
+    I_pmf: np.ndarray,
+    Q: int,
+    D_pmf: np.ndarray
+) -> np.ndarray:
+    """
+    Convolve inventory distribution with deterministic order and demand PMF.
+    
+    I_end = max(0, I_start + Q - D)
+    
+    Args:
+        I_pmf: PMF of starting inventory
+        Q: deterministic order quantity
+        D_pmf: PMF of demand
+    
+    Returns:
+        I_end_pmf: PMF of ending inventory
+    """
+    max_I_end = len(I_pmf) + Q
+    I_end_pmf = np.zeros(max_I_end)
+    
+    for I_start, p_I in enumerate(I_pmf):
+        if p_I == 0:
+            continue
+        for D, p_D in enumerate(D_pmf):
+            if p_D == 0:
+                continue
+            I_end = max(0, I_start + Q - D)
+            if I_end < max_I_end:
+                I_end_pmf[I_end] += p_I * p_D
+    
+    # Normalize
+    total = I_end_pmf.sum()
+    if total > 0:
+        I_end_pmf /= total
+    
+    return I_end_pmf
 

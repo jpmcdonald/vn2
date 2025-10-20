@@ -5,7 +5,67 @@ Per-SKU model selector: Choose best model for each SKU based on newsvendor metri
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional, Dict
+
+
+def select_per_sku_from_folds(
+    eval_folds_path: Path,
+    cost_col: str = 'sip_realized_cost_w2',
+    output_path: Optional[Path] = None
+) -> pd.DataFrame:
+    """
+    Per-SKU selector using fold-level costs (tie-aware).
+    
+    For each SKU, aggregate cost across folds per model, find min, handle ties.
+    
+    Args:
+        eval_folds_path: Path to eval_folds parquet (e.g., eval_folds_v4_sip.parquet)
+        cost_col: Cost column to minimize (default: sip_realized_cost_w2)
+        output_path: Optional path to save selector map
+    
+    Returns:
+        DataFrame with (store, product, best_model, total_cost, n_ties)
+    """
+    df = pd.read_parquet(eval_folds_path)
+    
+    if cost_col not in df.columns:
+        raise ValueError(f"Cost column {cost_col} not found. Available: {df.columns.tolist()}")
+    
+    # Aggregate cost per SKU per model across folds
+    agg = (df.groupby(['store', 'product', 'model_name'], as_index=False)[cost_col]
+             .sum().rename(columns={cost_col: 'total_cost'}))
+    
+    # Find min per SKU
+    min_cost = agg.groupby(['store', 'product'])['total_cost'].transform('min')
+    champions = agg[agg['total_cost'] == min_cost].copy()
+    
+    # Count ties
+    n_ties = champions.groupby(['store', 'product'])['model_name'].transform('count')
+    champions['n_ties'] = n_ties
+    champions['win_share'] = 1.0 / n_ties
+    
+    # For single-champion SKUs, keep one row; for ties, keep all with win_share
+    result = champions.copy()
+    
+    print("="*70)
+    print(f"PER-SKU SELECTOR (from folds, cost_col={cost_col})")
+    print("="*70)
+    num_skus = agg[['store', 'product']].drop_duplicates().shape[0]
+    print(f"\nTotal SKUs: {num_skus}")
+    print(f"SKUs with ties: {(n_ties > 1).sum()} / {len(champions)}")
+    
+    # Aggregate win shares
+    win_counts = champions.groupby('model_name')['win_share'].sum().sort_values(ascending=False)
+    print(f"\nModel win shares (tie-adjusted):")
+    for model, share in win_counts.items():
+        pct = 100.0 * share / num_skus
+        print(f"  {model:25s}: {share:6.2f} / {num_skus} ({pct:5.1f}%)")
+    
+    if output_path:
+        result.to_parquet(output_path, index=False)
+        print(f"\n✅ Saved to {output_path}")
+    
+    return result
 
 
 def select_best_models(
