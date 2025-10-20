@@ -197,27 +197,30 @@ def compute_cost_metric(
     costs: Costs,
     lt: LeadTime,
     n_sims: int = 500,
-    seed: int = 42
+    seed: int = 42,
+    realized_cost: bool = True
 ) -> Dict[str, float]:
     """
     Compute cost-based metric using base-stock policy.
     
     Simulates ordering decision at fold origin and measures costs over horizon.
+    
+    Args:
+        y_true: Actual realized demand for h=1, h=2
+        quantiles_df: Forecast quantiles
+        initial_state: Starting inventory state
+        costs: Cost parameters
+        lt: Lead time parameters
+        n_sims: Number of Monte Carlo simulations (for forecast-based cost only)
+        seed: Random seed
+        realized_cost: If True, use y_true as demand; if False, sample from forecast
+    
+    Returns:
+        Dictionary with cost metrics
     """
     rng = np.random.default_rng(seed)
     quantile_levels = quantiles_df.columns.values
-    
-    # Sample demand scenarios from quantiles
     horizon = len(y_true)
-    demand_sims = np.zeros((n_sims, horizon))
-    
-    for step in range(horizon):
-        if step + 1 in quantiles_df.index:
-            q_vals = quantiles_df.loc[step + 1].values
-            u = rng.uniform(0, 1, n_sims)
-            demand_sims[:, step] = np.interp(u, quantile_levels, q_vals)
-        else:
-            demand_sims[:, step] = y_true[step]  # Fallback
     
     # Estimate mu and sigma from h=1 forecast for base-stock
     if 1 in quantiles_df.index:
@@ -242,14 +245,14 @@ def compute_cost_metric(
     
     # Simulate costs
     sim = Simulator(costs, lt)
-    total_costs = []
     
-    for sim_idx in range(n_sims):
+    if realized_cost:
+        # Use actual realized demand (single deterministic path)
         state = initial_state.copy()
-        sim_cost = 0.0
+        total_cost = 0.0
         
         for step in range(horizon):
-            demand_t = pd.Series([demand_sims[sim_idx, step]], index=state.index)
+            demand_t = pd.Series([y_true[step]], index=state.index)
             
             # Week 0: place computed order; after: zero recourse
             if step == 0:
@@ -258,18 +261,74 @@ def compute_cost_metric(
                 order_t = pd.Series([0], index=state.index)
             
             state, cost_dict = sim.step(state, demand_t, order_t)
-            sim_cost += cost_dict["total"]
+            total_cost += cost_dict["total"]
         
-        total_costs.append(sim_cost)
+        return {
+            'expected_cost': float(total_cost),
+            'cost_std': 0.0,
+            'cost_q05': float(total_cost),
+            'cost_q95': float(total_cost),
+            'order_qty': float(order_qty),
+            'base_stock_level': float(S)
+        }
+    else:
+        # Sample demand scenarios from forecast quantiles (original v1 logic)
+        demand_sims = np.zeros((n_sims, horizon))
+        
+        for step in range(horizon):
+            if step + 1 in quantiles_df.index:
+                q_vals = quantiles_df.loc[step + 1].values
+                u = rng.uniform(0, 1, n_sims)
+                demand_sims[:, step] = np.interp(u, quantile_levels, q_vals)
+            else:
+                demand_sims[:, step] = y_true[step]  # Fallback
+        
+        total_costs = []
+        
+        for sim_idx in range(n_sims):
+            state = initial_state.copy()
+            sim_cost = 0.0
+            
+            for step in range(horizon):
+                demand_t = pd.Series([demand_sims[sim_idx, step]], index=state.index)
+                
+                # Week 0: place computed order; after: zero recourse
+                if step == 0:
+                    order_t = pd.Series([order_qty], index=state.index)
+                else:
+                    order_t = pd.Series([0], index=state.index)
+                
+                state, cost_dict = sim.step(state, demand_t, order_t)
+                sim_cost += cost_dict["total"]
+            
+            total_costs.append(sim_cost)
+        
+        return {
+            'expected_cost': float(np.mean(total_costs)),
+            'cost_std': float(np.std(total_costs)),
+            'cost_q05': float(np.quantile(total_costs, 0.05)),
+            'cost_q95': float(np.quantile(total_costs, 0.95)),
+            'order_qty': float(order_qty),
+            'base_stock_level': float(S)
+        }
+
+
+def is_degenerate_forecast(quantiles_df: pd.DataFrame) -> bool:
+    """Check if forecast is degenerate (all quantiles identical or all zero)"""
+    if quantiles_df.empty:
+        return True
     
-    return {
-        'expected_cost': float(np.mean(total_costs)),
-        'cost_std': float(np.std(total_costs)),
-        'cost_q05': float(np.quantile(total_costs, 0.05)),
-        'cost_q95': float(np.quantile(total_costs, 0.95)),
-        'order_qty': float(order_qty),
-        'base_stock_level': float(S)
-    }
+    # Check if all quantiles are identical (zero width)
+    for step in [1, 2]:
+        if step in quantiles_df.index:
+            q_vals = quantiles_df.loc[step].values
+            if len(np.unique(q_vals)) == 1:  # All same value
+                return True
+            # Check if range is effectively zero
+            if np.ptp(q_vals) < 1e-6:
+                return True
+    
+    return False
 
 
 def evaluate_one(
@@ -281,7 +340,9 @@ def evaluate_one(
     costs: Costs,
     lt: LeadTime,
     n_sims: int,
-    seed: int
+    seed: int,
+    realized_cost: bool = True,
+    skip_degenerate: bool = True
 ) -> Optional[Dict[str, Any]]:
     """Evaluate a single (model, SKU, fold) combination"""
     
@@ -294,6 +355,10 @@ def evaluate_one(
     
     quantiles_df = checkpoint.get('quantiles')
     if quantiles_df is None or quantiles_df.empty:
+        return None
+    
+    # Check for degenerate forecast
+    if skip_degenerate and is_degenerate_forecast(quantiles_df):
         return None
     
     # Reconstruct test data
@@ -355,7 +420,7 @@ def evaluate_one(
         }, index=[(task.store, task.product)])
         
         cost_metrics = compute_cost_metric(
-            y_true, quantiles_df, initial_state, costs, lt, n_sims, seed + task.fold_idx
+            y_true, quantiles_df, initial_state, costs, lt, n_sims, seed + task.fold_idx, realized_cost
         )
         result.update(cost_metrics)
         
@@ -411,7 +476,10 @@ def run_evaluation(
     resume: bool = True,
     costs_dict: Dict[str, float] = None,
     lead_weeks: int = 2,
-    review_weeks: int = 1
+    review_weeks: int = 1,
+    realized_cost: bool = True,
+    skip_degenerate: bool = True,
+    out_suffix: str = ""
 ):
     """Run full evaluation with batching and checkpointing"""
     
@@ -469,7 +537,7 @@ def run_evaluation(
         batch_results = Parallel(n_jobs=n_jobs, backend='loky', verbose=5)(
             delayed(evaluate_one)(
                 task, df, master_df, checkpoint_dir, holdout_weeks,
-                costs, lt, n_sims, 42
+                costs, lt, n_sims, 42, realized_cost, skip_degenerate
             ) for task in batch_tasks
         )
         
@@ -486,7 +554,8 @@ def run_evaluation(
         if valid_results:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             pid = os.getpid()
-            batch_file = output_dir / f"eval_folds_part-{timestamp}-{pid}-{batch_start//batch_size}.parquet"
+            suffix = f"_{out_suffix}" if out_suffix else ""
+            batch_file = output_dir / f"eval_folds{suffix}_part-{timestamp}-{pid}-{batch_start//batch_size}.parquet"
             temp_file = batch_file.with_suffix('.parquet.tmp')
             
             batch_df = pd.DataFrame(valid_results)
@@ -507,7 +576,8 @@ def run_evaluation(
     
     if all_results:
         final_df = pd.DataFrame(all_results)
-        final_path = output_dir / "eval_folds.parquet"
+        suffix = f"_{out_suffix}" if out_suffix else ""
+        final_path = output_dir / f"eval_folds{suffix}.parquet"
         final_df.to_parquet(final_path)
         print(f"✅ Saved consolidated results: {final_path}")
         print(f"   Total evaluations: {len(final_df)}")
@@ -515,7 +585,7 @@ def run_evaluation(
         print(f"   SKUs: {final_df[['store', 'product']].drop_duplicates().shape[0]}")
 
 
-def aggregate_results(input_path: Path, output_dir: Path):
+def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
     """Aggregate per-fold results to per-SKU and overall leaderboards"""
     print("📊 Aggregating results...")
     
@@ -548,7 +618,8 @@ def aggregate_results(input_path: Path, output_dir: Path):
     agg_df.rename(columns={'fold_idx': 'n_folds'}, inplace=True)
     
     # Save aggregated
-    agg_path = output_dir / "eval_agg.parquet"
+    suffix = f"_{out_suffix}" if out_suffix else ""
+    agg_path = output_dir / f"eval_agg{suffix}.parquet"
     agg_df.to_parquet(agg_path)
     print(f"✅ Saved aggregated results: {agg_path}")
     
@@ -561,7 +632,7 @@ def aggregate_results(input_path: Path, output_dir: Path):
     if 'expected_cost' in overall.columns:
         overall = overall.sort_values('expected_cost')
     
-    leaderboard_path = output_dir / "leaderboards.parquet"
+    leaderboard_path = output_dir / f"leaderboards{suffix}.parquet"
     overall.to_parquet(leaderboard_path)
     print(f"✅ Saved leaderboard: {leaderboard_path}")
     
@@ -597,6 +668,13 @@ def main():
     parser.add_argument('--resume', action='store_true', help='Resume from checkpoint')
     parser.add_argument('--aggregate', action='store_true', help='Only run aggregation step')
     
+    # V2 features
+    parser.add_argument('--realized-cost', action='store_true', default=True, help='Use realized demand for cost (default: True)')
+    parser.add_argument('--forecast-cost', dest='realized_cost', action='store_false', help='Use forecast samples for cost (v1 behavior)')
+    parser.add_argument('--skip-degenerate', action='store_true', default=True, help='Skip degenerate forecasts (default: True)')
+    parser.add_argument('--include-degenerate', dest='skip_degenerate', action='store_false', help='Include degenerate forecasts')
+    parser.add_argument('--out-suffix', type=str, default='', help='Output file suffix (e.g., "v2")')
+    
     # Cost parameters
     parser.add_argument('--holding-cost', type=float, default=0.2)
     parser.add_argument('--shortage-cost', type=float, default=1.0)
@@ -626,11 +704,12 @@ def main():
     
     if args.aggregate:
         # Only aggregate existing results
-        input_path = args.output_dir / "eval_folds.parquet"
+        suffix = f"_{args.out_suffix}" if args.out_suffix else ""
+        input_path = args.output_dir / f"eval_folds{suffix}.parquet"
         if not input_path.exists():
             print(f"❌ No results file found at {input_path}")
             return
-        aggregate_results(input_path, args.output_dir)
+        aggregate_results(input_path, args.output_dir, args.out_suffix)
     else:
         # Run evaluation
         costs_dict = {'holding': args.holding_cost, 'shortage': args.shortage_cost}
@@ -648,13 +727,17 @@ def main():
             resume=args.resume,
             costs_dict=costs_dict,
             lead_weeks=args.lead_weeks,
-            review_weeks=args.review_weeks
+            review_weeks=args.review_weeks,
+            realized_cost=args.realized_cost,
+            skip_degenerate=args.skip_degenerate,
+            out_suffix=args.out_suffix
         )
         
         # Auto-aggregate if evaluation completed
-        final_path = args.output_dir / "eval_folds.parquet"
+        suffix = f"_{args.out_suffix}" if args.out_suffix else ""
+        final_path = args.output_dir / f"eval_folds{suffix}.parquet"
         if final_path.exists():
-            aggregate_results(final_path, args.output_dir)
+            aggregate_results(final_path, args.output_dir, args.out_suffix)
 
 
 if __name__ == '__main__':
