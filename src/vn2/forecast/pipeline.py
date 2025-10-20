@@ -287,7 +287,7 @@ class ForecastPipeline:
                 print(f"🚀 Starting model: {current_model}")
                 print(f"{'='*60}\n")
             
-            batch_results = Parallel(n_jobs=n_jobs, backend='threading', verbose=5)(
+            batch_results = Parallel(n_jobs=n_jobs, backend='loky', verbose=5)(
                 delayed(self.train_one)(
                     task,
                     df,
