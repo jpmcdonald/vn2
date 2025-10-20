@@ -43,6 +43,85 @@ from vn2.analyze.sip_opt import (
 )
 
 
+def build_ensemble_from_folds(
+    stage: str,
+    eval_folds_path: Path,
+    selector_map_path: Optional[Path] = None,
+    cohort_features_path: Optional[Path] = None,
+    cohort_rules: Optional[Dict] = None,
+    output_path: Optional[Path] = None
+) -> pd.DataFrame:
+    """
+    Build ensemble fold-level results by selecting per-SKU models (post-hoc).
+    
+    Args:
+        stage: 'selector' or 'cohort'
+        eval_folds_path: Path to per-model fold results (e.g., eval_folds_v4_sip.parquet)
+        selector_map_path: Path to per_sku_selector_map.parquet (for 'selector' stage)
+        cohort_features_path: Path to cohort features (for 'cohort' stage)
+        cohort_rules: Dict mapping cohort tuples to model names (for 'cohort' stage)
+        output_path: Optional path to save ensemble folds
+    
+    Returns:
+        DataFrame with ensemble fold-level results
+    """
+    print(f"🔧 Building ensemble (stage={stage}) from folds...")
+    
+    # Load per-model folds
+    df = pd.read_parquet(eval_folds_path)
+    
+    if stage == 'selector':
+        if selector_map_path is None:
+            raise ValueError("selector_map_path required for stage='selector'")
+        
+        # Load selector map
+        selector = pd.read_parquet(selector_map_path)
+        
+        # For ties, pick first (or could sample/blend)
+        selector_single = selector.groupby(['store', 'product']).first().reset_index()
+        selector_single = selector_single[['store', 'product', 'model_name']].rename(
+            columns={'model_name': 'selected_model'}
+        )
+        
+        # Join and filter
+        merged = df.merge(selector_single, on=['store', 'product'], how='inner')
+        ensemble_folds = merged[merged['model_name'] == merged['selected_model']].copy()
+        ensemble_folds['model_name'] = 'ensemble_selector'
+        ensemble_folds = ensemble_folds.drop(columns=['selected_model'])
+        
+    elif stage == 'cohort':
+        if cohort_features_path is None or cohort_rules is None:
+            raise ValueError("cohort_features_path and cohort_rules required for stage='cohort'")
+        
+        # Load cohort features
+        cohort_df = pd.read_parquet(cohort_features_path)
+        
+        # Apply rules to get selected model per SKU
+        def lookup(row):
+            key = tuple(row[f] for f in ['rate_bin', 'zero_bin', 'cv_bin', 'stockout_bin'])
+            return cohort_rules.get(key, 'qrf')  # fallback to qrf
+        
+        cohort_df['selected_model'] = cohort_df.apply(lookup, axis=1)
+        cohort_single = cohort_df[['store', 'product', 'selected_model']]
+        
+        # Join and filter
+        merged = df.merge(cohort_single, on=['store', 'product'], how='inner')
+        ensemble_folds = merged[merged['model_name'] == merged['selected_model']].copy()
+        ensemble_folds['model_name'] = 'ensemble_cohort'
+        ensemble_folds = ensemble_folds.drop(columns=['selected_model'])
+        
+    else:
+        raise ValueError(f"Unsupported stage: {stage}")
+    
+    print(f"✅ Built {len(ensemble_folds)} ensemble fold rows")
+    
+    if output_path:
+        ensemble_folds.to_parquet(output_path, index=False)
+        print(f"✅ Saved to {output_path}")
+    
+    return ensemble_folds
+
+
 # Global flag for graceful shutdown
 INTERRUPTED = False
 

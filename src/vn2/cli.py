@@ -757,6 +757,120 @@ def cmd_eda_info(args):
     return out
 
 
+def cmd_ensemble_eval(args):
+    """Build and evaluate ensemble models (post-hoc from existing folds)"""
+    from vn2.analyze.model_eval import build_ensemble_from_folds, aggregate_results
+    from vn2.analyze.ensemble import cohort_selector_rules
+    
+    base = Path('models/results')
+    eval_folds_path = Path(args.eval_folds)
+    out_suffix = args.out_suffix
+    
+    if args.aggregate:
+        # Aggregate existing ensemble fold parts
+        rprint(f"📊 Aggregating ensemble results (suffix={out_suffix})...")
+        folds_path = base / f'eval_folds{out_suffix}.parquet'
+        parts = sorted(base.glob(f'eval_folds_{out_suffix}_part-*.parquet'))
+        
+        if not folds_path.exists() and parts:
+            rprint(f"Merging {len(parts)} part files...")
+            df = pd.concat([pd.read_parquet(p) for p in parts], ignore_index=True)
+            df.to_parquet(folds_path)
+            rprint(f"✅ Wrote {folds_path}")
+        
+        if folds_path.exists():
+            aggregate_results(folds_path, base, out_suffix=out_suffix)
+            rprint(f"✅ Aggregated {out_suffix}")
+        
+        if args.append_to_combined:
+            # Append to v4_all leaderboard
+            combined_path = base / 'leaderboards__v4_all.parquet'
+            new_lb_path = base / f'leaderboards_{out_suffix}.parquet'
+            
+            if new_lb_path.exists():
+                new_lb = pd.read_parquet(new_lb_path)
+                new_lb['run'] = out_suffix.replace('_v4_ens_', 'ens_')
+                
+                if combined_path.exists():
+                    combined = pd.read_parquet(combined_path)
+                    # Remove old ensemble rows if present
+                    combined = combined[~combined['run'].str.startswith('ens_')]
+                    combined = pd.concat([combined, new_lb], ignore_index=True)
+                else:
+                    combined = new_lb
+                
+                combined.to_parquet(combined_path)
+                rprint(f"✅ Appended to {combined_path}")
+        
+        return
+    
+    # Build ensemble from folds
+    stage = args.stage
+    
+    if stage == 'selector':
+        selector_map_path = Path(args.selector_map)
+        ensemble_folds = build_ensemble_from_folds(
+            stage='selector',
+            eval_folds_path=eval_folds_path,
+            selector_map_path=selector_map_path,
+            output_path=base / f'eval_folds{out_suffix}.parquet'
+        )
+    
+    elif stage == 'cohort':
+        # Load cohort features and fit rules
+        if args.cohort_features is None:
+            # Build from demand_long
+            rprint("Building cohort features from demand_long.parquet...")
+            demand_path = Path('data/processed/demand_long.parquet')
+            df = pd.read_parquet(demand_path)
+            
+            # Compute cohort features per SKU (simplified)
+            # Normalize column names
+            df = df.rename(columns={'Store': 'store', 'Product': 'product'})
+            grp = df.groupby(['store', 'product'])
+            feat = grp['sales'].agg(['mean', 'std']).rename(columns={'mean': 'rate', 'std': 'std'})
+            feat['zero_ratio'] = grp['sales'].apply(lambda s: (s <= 0).mean()).values
+            feat['cv'] = feat['std'] / feat['rate'].replace({0: np.nan})
+            
+            # Simple binning
+            feat['rate_bin'] = pd.qcut(feat['rate'], 3, labels=['low', 'mid', 'high'], duplicates='drop')
+            feat['zero_bin'] = pd.qcut(feat['zero_ratio'], 3, labels=['low', 'mid', 'high'], duplicates='drop')
+            feat['cv_bin'] = pd.qcut(feat['cv'].fillna(feat['cv'].median()), 3, labels=['low', 'mid', 'high'], duplicates='drop')
+            feat['stockout_bin'] = 'unknown'  # Placeholder
+            
+            feat = feat.reset_index()
+            cohort_features_path = base / 'cohort_features_temp.parquet'
+            feat.to_parquet(cohort_features_path)
+        else:
+            cohort_features_path = Path(args.cohort_features)
+        
+        # Load selector map and fit rules
+        selector_map_path = Path(args.selector_map)
+        selector = pd.read_parquet(selector_map_path)
+        cohort_feat = pd.read_parquet(cohort_features_path)
+        
+        rules = cohort_selector_rules(
+            cohort_feat,
+            selector,
+            features=['rate_bin', 'zero_bin', 'cv_bin', 'stockout_bin']
+        )
+        
+        rprint(f"Learned {len(rules)} cohort rules")
+        
+        ensemble_folds = build_ensemble_from_folds(
+            stage='cohort',
+            eval_folds_path=eval_folds_path,
+            cohort_features_path=cohort_features_path,
+            cohort_rules=rules,
+            output_path=base / f'eval_folds{out_suffix}.parquet'
+        )
+    
+    else:
+        raise NotImplementedError(f"Stage {stage} not yet implemented")
+    
+    rprint(f"✅ Ensemble build complete. Run with --aggregate to produce leaderboard.")
+
+
 # ---- Main CLI ----
 
 def main():
@@ -848,6 +962,24 @@ def main():
     g.add_argument("--seed", type=int, default=0, help="Random seed")
     g.add_argument("--output", type=str, default="models/results/pid_imin_sample.parquet", help="Output path")
     g.set_defaults(func=cmd_eda_info)
+    
+    # ensemble-eval
+    g = sp.add_parser("ensemble-eval", help="Build and evaluate ensemble models")
+    g.add_argument("--stage", type=str, choices=['selector', 'cohort', 'decision'], required=True,
+                   help="Ensemble stage: selector, cohort, or decision")
+    g.add_argument("--eval-folds", type=str, default="models/results/eval_folds_v4_sip.parquet",
+                   help="Path to per-model fold results")
+    g.add_argument("--selector-map", type=str, default="models/results/per_sku_selector_map.parquet",
+                   help="Path to per-SKU selector map")
+    g.add_argument("--cohort-features", type=str, default=None,
+                   help="Path to cohort features parquet (for cohort stage)")
+    g.add_argument("--out-suffix", type=str, default="_v4_ens_selector",
+                   help="Output suffix for ensemble results")
+    g.add_argument("--aggregate", action="store_true",
+                   help="Aggregate existing fold parts and produce leaderboard")
+    g.add_argument("--append-to-combined", action="store_true",
+                   help="Append ensemble leaderboard to v4_all combined leaderboard")
+    g.set_defaults(func=cmd_ensemble_eval)
     
     args = p.parse_args()
     args.func(args)
