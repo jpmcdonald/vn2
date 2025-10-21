@@ -1,0 +1,17 @@
+model,count,pct
+lightgbm_quantile,190,31.7
+slurp_bootstrap,73,12.2
+knn_profile,51,8.5
+qrf,46,7.7
+croston_classic,41,6.8
+seasonal_naive,34,5.7
+slurp_bootstrap_OLD,27,4.5
+ngboost,25,4.2
+ets,22,3.7
+croston_tsb,22,3.7
+croston_sba,18,3.0
+slurp_stockout_aware,17,2.8
+zinb,11,1.8
+zip,9,1.5
+lightgbm_point,7,1.2
+slurp_stockout_aware_OLD,6,1.0

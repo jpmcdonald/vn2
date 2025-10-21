@@ -44,3 +44,4 @@
 - MPC-like 3–4 step SIP lookahead for high-impact SKUs
 
 
+- [ ] Deep analysis: risk/payoff around critical fractile (p*=cu/(cu+co)), curvature near CF, breakpoint between EV vs CF-driven ordering; derive diagnostics and plots; per-SKU and portfolio views.
