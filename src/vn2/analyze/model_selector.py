@@ -45,6 +45,11 @@ def select_per_sku_from_folds(
     # Primary score: sum of cost across last-N folds
     agg = (dfN.groupby(['store', 'product', 'model_name'], as_index=False)[cost_col]
              .sum().rename(columns={cost_col: 'total_cost_w8'}))
+
+    # Coverage per SKU per model across last-N folds
+    cov = (dfN.groupby(['store','product','model_name'])['fold_idx']
+              .nunique().reset_index(name='n_folds'))
+    agg = agg.merge(cov, on=['store','product','model_name'], how='left')
     
     # Tie-breakers: aggregate CF metrics (mean across folds)
     for tb in tie_breakers:
@@ -55,6 +60,10 @@ def select_per_sku_from_folds(
     
     # Build SKU-level ranking
     def rank_one(g):
+        # Enforce full coverage for this SKU
+        g = g[g['n_folds'] >= fold_window].copy()
+        if g.empty:
+            return g.assign(model_rank=pd.Series(dtype=int))
         # Sort by total_cost_w8, then tie-breakers in order
         sort_cols = ['total_cost_w8']
         ascending = [True]

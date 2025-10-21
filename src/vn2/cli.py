@@ -629,6 +629,15 @@ def cmd_forecast(args):
             cfg['models']['glm_negbin'] = {}
         return GLMCountForecaster(forecast_config, family='negbin')
     
+    def make_naive4():
+        """Naive 4-week rolling average with Poisson density"""
+        from vn2.forecast.models.naive4 import Naive4WeekForecaster
+        return Naive4WeekForecaster(
+            quantiles=quantiles,
+            horizon=cfg['horizon'],
+            use_normal=False  # Use Poisson by default
+        )
+    
     # Select models
     if args.pilot:
         models = {
@@ -676,6 +685,8 @@ def cmd_forecast(args):
             models['glm_poisson'] = make_glm_poisson
         if cfg['models'].get('glm_negbin', {}).get('enabled', False):
             models['glm_negbin'] = make_glm_negbin
+        if cfg['models'].get('naive4', {}).get('enabled', False):
+            models['naive4'] = make_naive4
     
     rprint(f"\n🤖 Models to train: {list(models.keys())}")
     
@@ -755,6 +766,144 @@ def cmd_eda_info(args):
     out.to_parquet(out_path)
     rprint(f"✅ Saved PID sample to: {out_path}")
     return out
+
+
+def cmd_w8_eval(args):
+    """Compute exact 8-fold per-SKU costs with Q=0 fallback"""
+    from vn2.analyze.w8_eval import W8Config, run_w8_eval
+    
+    config = W8Config(
+        folds_path=Path(args.folds_path),
+        demand_path=Path(args.demand_path),
+        state_path=Path(args.state_path),
+        output_dir=Path(args.out_dir),
+        run_tag=args.run_tag,
+        n_jobs=args.n_jobs,
+        holding_cost=args.holding_cost,
+        shortage_cost=args.shortage_cost,
+        critical_fractile=args.shortage_cost / (args.holding_cost + args.shortage_cost)
+    )
+    
+    run_w8_eval(config)
+
+
+def cmd_sequential_eval(args):
+    """Run sequential L=2 evaluation over H=12 epochs"""
+    from vn2.analyze.sequential_eval import SequentialConfig, run_full_sequential_eval
+    
+    config = SequentialConfig(
+        checkpoints_dir=Path(args.checkpoints),
+        demand_path=Path(args.demand),
+        state_path=Path(args.state),
+        output_dir=Path(args.out_dir),
+        run_tag=args.run_tag,
+        n_jobs=args.n_jobs,
+        holding_cost=args.co,
+        shortage_cost=args.cu,
+        sip_grain=args.sip_grain,
+        holdout_weeks=args.holdout
+    )
+    
+    run_full_sequential_eval(config)
+
+
+def cmd_today_order(args):
+    """Generate today's order using latest forecasts and current state"""
+    from vn2.analyze.sequential_planner import choose_order_L2, Costs
+    from vn2.analyze.sip_opt import quantiles_to_pmf
+    import pickle
+    
+    rprint("[bold blue]📦 Generating Today's Orders[/bold blue]")
+    
+    # Load state
+    state_df = pd.read_parquet(args.state)
+    if not isinstance(state_df.index, pd.MultiIndex):
+        if 'Store' in state_df.columns and 'Product' in state_df.columns:
+            state_df = state_df.set_index(['Store', 'Product'])
+    
+    rprint(f"  State: {len(state_df)} SKUs")
+    
+    # Load latest forecasts (fold_idx=0, most recent)
+    checkpoints_dir = Path(args.checkpoints)
+    model_name = args.model
+    fold_idx = 0  # Most recent fold
+    
+    rprint(f"  Using model: {model_name}")
+    rprint(f"  Checkpoints: {checkpoints_dir}")
+    
+    # Quantile levels (from config or default)
+    quantile_levels = np.array([0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99])
+    
+    costs = Costs(holding=args.co, shortage=args.cu)
+    
+    orders = []
+    
+    for idx, (store, product) in enumerate(state_df.index):
+        if idx % 100 == 0:
+            rprint(f"  Processing SKU {idx+1}/{len(state_df)}...")
+        
+        # Load checkpoint
+        checkpoint_path = checkpoints_dir / model_name / f"{store}_{product}" / f"fold_{fold_idx}.pkl"
+        
+        if not checkpoint_path.exists():
+            # No forecast: order 0
+            orders.append({'Store': store, 'Product': product, 'q_now': 0})
+            continue
+        
+        try:
+            with open(checkpoint_path, 'rb') as f:
+                checkpoint = pickle.load(f)
+        except Exception:
+            orders.append({'Store': store, 'Product': product, 'q_now': 0})
+            continue
+        
+        quantiles_df = checkpoint.get('quantiles')
+        if quantiles_df is None or quantiles_df.empty:
+            orders.append({'Store': store, 'Product': product, 'q_now': 0})
+            continue
+        
+        # Extract h1 and h2
+        if 1 not in quantiles_df.index or 2 not in quantiles_df.index:
+            orders.append({'Store': store, 'Product': product, 'q_now': 0})
+            continue
+        
+        h1_quantiles = quantiles_df.loc[1].values
+        h2_quantiles = quantiles_df.loc[2].values
+        
+        # Convert to PMF
+        try:
+            h1_pmf = quantiles_to_pmf(h1_quantiles, quantile_levels, grain=args.sip_grain)
+            h2_pmf = quantiles_to_pmf(h2_quantiles, quantile_levels, grain=args.sip_grain)
+        except Exception:
+            orders.append({'Store': store, 'Product': product, 'q_now': 0})
+            continue
+        
+        # Get state
+        try:
+            I0 = int(state_df.loc[(store, product), 'on_hand'])
+            Q1 = int(state_df.loc[(store, product), 'intransit_1'])
+            Q2 = int(state_df.loc[(store, product), 'intransit_2'])
+        except Exception:
+            I0, Q1, Q2 = 0, 0, 0
+        
+        # Choose order
+        try:
+            q_now, _ = choose_order_L2(h1_pmf, h2_pmf, I0, Q1, Q2, costs)
+        except Exception:
+            q_now = 0
+        
+        orders.append({'Store': store, 'Product': product, 'q_now': q_now})
+    
+    # Save to CSV
+    orders_df = pd.DataFrame(orders)
+    output_path = Path(args.out)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    orders_df.to_csv(output_path, index=False)
+    
+    rprint(f"[green]✅ Saved {len(orders_df)} orders to: {output_path}[/green]")
+    rprint(f"  Total units ordered: {orders_df['q_now'].sum()}")
+    rprint(f"  Mean order: {orders_df['q_now'].mean():.2f}")
+    rprint(f"  Max order: {orders_df['q_now'].max()}")
 
 
 def cmd_ensemble_eval(args):
@@ -980,6 +1129,68 @@ def main():
     g.add_argument("--append-to-combined", action="store_true",
                    help="Append ensemble leaderboard to v4_all combined leaderboard")
     g.set_defaults(func=cmd_ensemble_eval)
+    
+    # w8-eval
+    g = sp.add_parser("w8-eval", help="Compute exact 8-fold per-SKU costs with Q=0 fallback")
+    g.add_argument("--run-tag", type=str, default="v4full",
+                   help="Run tag for output files (default: v4full)")
+    g.add_argument("--folds-path", type=str, default="models/results/eval_folds__v4_sip_full.parquet",
+                   help="Path to folds parquet")
+    g.add_argument("--demand-path", type=str, default="data/processed/demand_long.parquet",
+                   help="Path to demand data")
+    g.add_argument("--state-path", type=str, default="data/interim/state.parquet",
+                   help="Path to state data")
+    g.add_argument("--out-dir", type=str, default="models/results",
+                   help="Output directory")
+    g.add_argument("--n-jobs", type=int, default=12,
+                   help="Number of parallel jobs")
+    g.add_argument("--holding-cost", type=float, default=0.2,
+                   help="Holding cost per unit")
+    g.add_argument("--shortage-cost", type=float, default=1.0,
+                   help="Shortage cost per unit")
+    g.set_defaults(func=cmd_w8_eval)
+    
+    # sequential-eval (NEW)
+    g = sp.add_parser("sequential-eval", help="Run sequential L=2 evaluation over H=12 epochs")
+    g.add_argument("--checkpoints", type=str, default="models/checkpoints",
+                   help="Path to model checkpoints directory")
+    g.add_argument("--demand", type=str, default="data/processed/demand_long.parquet",
+                   help="Path to demand data")
+    g.add_argument("--state", type=str, default="data/interim/state.parquet",
+                   help="Path to state data")
+    g.add_argument("--out-dir", type=str, default="models/results",
+                   help="Output directory")
+    g.add_argument("--run-tag", type=str, default="seq12",
+                   help="Run tag for output files")
+    g.add_argument("--n-jobs", type=int, default=12,
+                   help="Number of parallel jobs")
+    g.add_argument("--cu", type=float, default=1.0,
+                   help="Shortage cost per unit (cu)")
+    g.add_argument("--co", type=float, default=0.2,
+                   help="Holding cost per unit (co)")
+    g.add_argument("--sip-grain", type=int, default=500,
+                   help="PMF grain (max support)")
+    g.add_argument("--holdout", type=int, default=12,
+                   help="Number of holdout weeks (epochs)")
+    g.set_defaults(func=cmd_sequential_eval)
+    
+    # today-order (NEW)
+    g = sp.add_parser("today-order", help="Generate today's order using latest forecasts")
+    g.add_argument("--checkpoints", type=str, default="models/checkpoints",
+                   help="Path to model checkpoints directory")
+    g.add_argument("--state", type=str, default="data/interim/state.parquet",
+                   help="Path to state data")
+    g.add_argument("--model", type=str, required=True,
+                   help="Model name to use for forecasts")
+    g.add_argument("--out", type=str, required=True,
+                   help="Output CSV file for orders")
+    g.add_argument("--cu", type=float, default=1.0,
+                   help="Shortage cost per unit")
+    g.add_argument("--co", type=float, default=0.2,
+                   help="Holding cost per unit")
+    g.add_argument("--sip-grain", type=int, default=500,
+                   help="PMF grain (max support)")
+    g.set_defaults(func=cmd_today_order)
     
     args = p.parse_args()
     args.func(args)

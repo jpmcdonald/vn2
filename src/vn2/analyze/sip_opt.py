@@ -346,3 +346,47 @@ def convolve_inventory_dist(
     
     return I_end_pmf
 
+
+def compute_realized_w2(
+    Q: int,
+    I0: int,
+    Q1: int,
+    Q2: int,
+    y1: int,
+    y2: int,
+    costs: Costs
+) -> float:
+    """
+    Compute realized cost for week 2 only (decision-affected week).
+    
+    This is a simplified version of compute_realized_metrics that returns
+    only the week 2 cost, used for w8 evaluation.
+    
+    Args:
+        Q: Order quantity placed at time 0 (arrives at start of week 3, not used here)
+        I0: Initial inventory at time 0
+        Q1: Order arriving at start of week 1 (deterministic, already placed)
+        Q2: Order arriving at start of week 2 (deterministic, already placed)
+        y1: Actual demand in week 1
+        y2: Actual demand in week 2
+        costs: Cost parameters
+    
+    Returns:
+        realized_cost_w2: Total cost (holding + shortage) for week 2 only
+    """
+    # Week 1 dynamics (to compute inventory state entering week 2)
+    I1_start = I0 + Q1
+    I1_end = max(0, I1_start - y1)
+    
+    # Week 2 dynamics
+    I2_start = I1_end + Q2
+    sales_2 = min(y2, I2_start)
+    I2_end = max(0, I2_start - y2)
+    
+    # Week 2 costs only
+    holding_cost_2 = costs.holding * I2_end
+    shortage_cost_2 = costs.shortage * max(0, y2 - I2_start)
+    total_cost_2 = holding_cost_2 + shortage_cost_2
+    
+    return total_cost_2
+
