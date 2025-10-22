@@ -375,13 +375,12 @@ def aggregate_model_totals(results_df: pd.DataFrame) -> pd.DataFrame:
                        lambda x: np.quantile(x, 0.05),
                        lambda x: np.quantile(x, 0.50),
                        lambda x: np.quantile(x, 0.95)],
-        'coverage': 'mean',
         'n_missing': 'sum'
     }).reset_index()
     
     agg.columns = [
         'model_name', 'portfolio_cost', 'mean_sku_cost', 'std_sku_cost', 'n_skus',
-        'p05_sku', 'p50_sku', 'p95_sku', 'avg_coverage', 'total_missing'
+        'p05_sku', 'p50_sku', 'p95_sku', 'total_missing'
     ]
     
     # Sort by portfolio cost
@@ -435,7 +434,7 @@ def render_leaderboard(
     md_lines.append("")
     
     # Table
-    cols = ['model_name', 'portfolio_cost', 'n_skus', 'mean_sku_cost', 'p50_sku', 'avg_coverage']
+    cols = ['model_name', 'portfolio_cost', 'n_skus', 'mean_sku_cost', 'p50_sku', 'total_missing']
     cols = [c for c in cols if c in combined.columns]
     
     header = "| " + " | ".join(cols) + " |"
