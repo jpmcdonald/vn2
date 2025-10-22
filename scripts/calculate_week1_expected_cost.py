@@ -162,12 +162,35 @@ def calculate_week1_expected_cost(
         E_over, E_under = expected_pos_neg_from_Z(final_Z_pmf, final_z_min)
         expected_cost_week3 = costs.holding * E_over + costs.shortage * E_under
         
+        # Calculate cost distribution for confidence intervals
+        # For each possible final inventory level, calculate the cost
+        idx = np.arange(len(final_Z_pmf))
+        z_vals = final_z_min + idx
+        
+        # Cost for each outcome: holding * max(z, 0) + shortage * max(-z, 0)
+        cost_values = np.where(z_vals > 0, 
+                               costs.holding * z_vals,
+                               costs.shortage * (-z_vals))
+        
+        # Calculate percentiles
+        sorted_indices = np.argsort(cost_values)
+        sorted_costs = cost_values[sorted_indices]
+        sorted_pmf = final_Z_pmf[sorted_indices]
+        cost_cdf = np.cumsum(sorted_pmf)
+        
+        cost_5th = sorted_costs[np.searchsorted(cost_cdf, 0.05)]
+        cost_95th = sorted_costs[np.searchsorted(cost_cdf, 0.95)]
+        cost_std = np.sqrt(np.sum(final_Z_pmf * (cost_values - expected_cost_week3)**2))
+        
         results.append({
             'store': store,
             'product': product,
             'model': model_used,
             'order': q_week1,
             'expected_cost': expected_cost_week3,
+            'cost_5th': cost_5th,
+            'cost_95th': cost_95th,
+            'cost_std': cost_std,
             'initial_inventory': I0,
             'intransit_1': Q1,
             'intransit_2': Q2
@@ -234,15 +257,32 @@ def main():
     print('RESULTS')
     print('='*80)
     print()
-    print(f'Total Expected Cost (Portfolio): {results_df["expected_cost"].sum():.2f}')
-    print(f'Mean Expected Cost per SKU: {results_df["expected_cost"].mean():.2f}')
-    print(f'Median Expected Cost per SKU: {results_df["expected_cost"].median():.2f}')
-    print(f'Min Expected Cost: {results_df["expected_cost"].min():.2f}')
-    print(f'Max Expected Cost: {results_df["expected_cost"].max():.2f}')
+    
+    # Portfolio-level statistics
+    portfolio_expected = results_df['expected_cost'].sum()
+    portfolio_5th = results_df['cost_5th'].sum()
+    portfolio_95th = results_df['cost_95th'].sum()
+    portfolio_std = np.sqrt((results_df['cost_std']**2).sum())  # Sum of variances
+    
+    print('PORTFOLIO EXPECTED COST:')
+    print(f'  Expected: {portfolio_expected:.2f}')
+    print(f'  5th percentile: {portfolio_5th:.2f}')
+    print(f'  95th percentile: {portfolio_95th:.2f}')
+    print(f'  90% Confidence Interval: [{portfolio_5th:.2f}, {portfolio_95th:.2f}]')
+    print(f'  Standard Deviation: {portfolio_std:.2f}')
+    print(f'  Coefficient of Variation: {portfolio_std/portfolio_expected*100:.1f}%')
+    print()
+    
+    # Per-SKU statistics
+    print('PER-SKU STATISTICS:')
+    print(f'  Mean Expected Cost: {results_df["expected_cost"].mean():.2f}')
+    print(f'  Median Expected Cost: {results_df["expected_cost"].median():.2f}')
+    print(f'  Min Expected Cost: {results_df["expected_cost"].min():.2f}')
+    print(f'  Max Expected Cost: {results_df["expected_cost"].max():.2f}')
     print()
     
     # Percentiles
-    print('Expected Cost Distribution:')
+    print('Expected Cost Distribution (Per-SKU):')
     for p in [5, 25, 50, 75, 95]:
         val = results_df['expected_cost'].quantile(p/100)
         print(f'  {p}th percentile: {val:.2f}')
