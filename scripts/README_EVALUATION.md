@@ -29,7 +29,43 @@ This directory contains scripts for running, analyzing, and validating the 12-we
 
 ---
 
-### 2. `compare_evaluation_runs.py`
+### 2. `analyze_submitted_order.py`
+**Purpose:** Analyze submitted orders with cost expectations and confidence intervals
+
+**Usage:**
+```bash
+python scripts/analyze_submitted_order.py
+```
+
+**What it does:**
+- Compares submitted orders vs selector recommendations
+- Calculates expected cost at decision time with 5th/95th percentiles
+- Optionally calculates realized cost after observing demand
+- Provides comprehensive cost analysis with uncertainty quantification
+
+**Output:**
+- Console summary with order comparison and cost analysis
+- `models/results/order_comparison_detailed.csv`
+
+**Key Questions Answered:**
+1. By how much did our order change compared to what was submitted?
+2. What was the expected cost when we submitted (with 5th/95th percentiles)?
+3. What is the realized cost now that we have Week 1 data?
+
+**Example Output:**
+```
+Order Statistics:
+  Submitted - Mean: 3.85, Median: 1.00, Total: 2309
+  Recommended - Mean: 3.85, Median: 1.00, Total: 2309
+
+SKU: Store 2, Product 124
+  Expected cost: 3.78
+  90% CI: [0.60, 11.00]
+```
+
+---
+
+### 3. `compare_evaluation_runs.py`
 **Purpose:** Compare portfolio costs between two evaluation runs
 
 **Usage:**
@@ -51,7 +87,7 @@ python scripts/compare_evaluation_runs.py
 
 ---
 
-### 3. `compare_week1_orders.py`
+### 4. `compare_week1_orders.py`
 **Purpose:** Compare actual Week 1 submission with selector recommendations
 
 **Usage:**
@@ -73,7 +109,7 @@ python scripts/compare_week1_orders.py
 
 ---
 
-### 4. `generate_evaluation_summary.py`
+### 5. `generate_evaluation_summary.py`
 **Purpose:** Generate comprehensive summary of evaluation results
 
 **Usage:**
