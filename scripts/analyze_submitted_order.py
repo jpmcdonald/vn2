@@ -42,7 +42,8 @@ def main():
     print()
     
     # Paths
-    submission_path = Path('data/submissions/orders_selector_wide_2024-04-15.csv')
+    # Use actual submission file from Desktop
+    submission_path = Path('data/submissions/jpatrickmcdonald_actual.csv')
     results_dir = Path('models/results')
     
     # Find latest results
