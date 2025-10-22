@@ -14,10 +14,15 @@ from joblib import Parallel, delayed
 from rich import print as rprint
 import pickle
 
-from vn2.analyze.sequential_planner import (
-    Costs, run_sequential_L2, _safe_pmf
+from vn2.analyze.sequential_planner import Costs, _safe_pmf
+from vn2.analyze.sequential_backtest import (
+    run_12week_backtest,
+    reconstruct_initial_state,
+    load_actual_demand,
+    quantiles_to_pmf,
+    BacktestState
 )
-from vn2.analyze.sip_opt import quantiles_to_pmf
+from vn2.analyze.forecast_loader import load_forecasts_for_sku as load_pmfs_for_sku
 
 
 @dataclass
@@ -228,46 +233,64 @@ def evaluate_sku_model(
     Returns:
         Dict with evaluation results or None if failed
     """
-    # Load forecasts
-    forecasts_h1, forecasts_h2 = load_forecasts_for_sku(
+    # Load forecasts using new loader
+    forecasts_h1, forecasts_h2 = load_pmfs_for_sku(
         store, product, model_name, checkpoints_dir,
-        config.holdout_weeks, quantile_levels, config.sip_grain
+        n_folds=config.holdout_weeks,
+        quantile_levels=quantile_levels,
+        pmf_grain=config.sip_grain
     )
     
     # Get actuals
     actuals = get_actuals_for_sku(store, product, demand_df)
     
-    if len(actuals) < config.holdout_weeks + 2:
+    if len(actuals) < config.holdout_weeks:
         return None  # Not enough actuals
+    
+    # Truncate to holdout_weeks
+    actuals = actuals[:config.holdout_weeks]
     
     # Get initial state
     I0, Q1, Q2 = get_initial_state(store, product, state_df)
     
+    # Create BacktestState
+    initial_state = BacktestState(
+        week=1,
+        on_hand=I0,
+        intransit_1=Q1,
+        intransit_2=Q2
+    )
+    
     # Setup costs
     costs = Costs(holding=config.holding_cost, shortage=config.shortage_cost)
     
-    # Run sequential planning
+    # Run 12-week backtest
     try:
-        result = run_sequential_L2(
+        result = run_12week_backtest(
+            store=store,
+            product=product,
+            model_name=model_name,
             forecasts_h1=forecasts_h1,
             forecasts_h2=forecasts_h2,
             actuals=actuals,
-            I0=I0,
-            Q1=Q1,
-            Q2=Q2,
+            initial_state=initial_state,
             costs=costs,
-            fallback_pmf=fallback_pmf
+            pmf_grain=config.sip_grain
         )
         
         return {
             'model_name': model_name,
             'store': store,
             'product': product,
-            'total_cost': result.total_cost,
-            'coverage': result.coverage,
-            'n_missing': result.n_missing,
-            'orders': result.orders_by_epoch,
-            'costs_by_epoch': result.costs_by_epoch
+            'total_cost': result.total_realized_cost,
+            'total_cost_excl_w1': result.total_realized_cost_excl_w1,
+            'total_expected_cost': result.total_expected_cost,
+            'total_expected_cost_excl_w1': result.total_expected_cost_excl_w1,
+            'n_missing': result.n_missing_forecasts,
+            'n_weeks': result.n_weeks,
+            'orders': [w.order_placed for w in result.weeks],
+            'costs_by_week': [w.realized_cost for w in result.weeks],
+            'max_pmf_residual': result.diagnostics.get('max_pmf_residual', 0.0)
         }
     except Exception as e:
         rprint(f"[yellow]Warning: Failed to evaluate {model_name} for ({store}, {product}): {e}[/yellow]")

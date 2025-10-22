@@ -190,36 +190,35 @@ def choose_order_L2(
     """
     Choose optimal order quantity for L=2 lead time using newsvendor fractile.
     
-    At decision epoch t:
-    - I0 = on-hand entering week t+1 (before Q1 arrives)
-    - Q1 = order arriving at start of week t+1
-    - Q2 = order arriving at start of week t+2
-    - h1_pmf = demand PMF for week t+1
-    - h2_pmf = demand PMF for week t+2
-    - q = order to place now (arrives at week t+3, but impacts week t+2 cost via pipeline)
+    LEAD TIME SEMANTICS: Order placed at start of week t arrives at start of week t+2.
     
-    Actually, correction: with L=2, order placed at t arrives at t+2.
-    So q impacts week t+2 directly.
+    At decision epoch t:
+    - I0 = on-hand entering week t (before any arrivals)
+    - Q1 = order arriving at start of week t (placed at t-2)
+    - Q2 = order arriving at start of week t+1 (placed at t-1)
+    - h1_pmf = demand PMF for week t
+    - h2_pmf = demand PMF for week t+1
+    - q = order to place now at t (arrives at week t+2)
     
     Steps:
-    1) Compute leftover after week t+1: L1 = max((I0 + Q1) - D_{t+1}, 0)
-    2) Inventory at start of week t+2 before new order: Lpre = L1 + Q2
-    3) Choose q to minimize expected cost at week t+2: cu*shortage + co*overage
-       where shortage = max(D_{t+2} - (Lpre + q), 0)
-             overage = max((Lpre + q) - D_{t+2}, 0)
-    4) Use newsvendor fractile p* = cu/(cu+co) on W = D_{t+2} - Lpre
+    1) Compute leftover after week t: L1 = max((I0 + Q1) - D_t, 0)
+    2) Inventory at start of week t+1: Lpre = L1 + Q2
+    3) Choose q to minimize expected cost at week t+1: cu*shortage + co*overage
+       where shortage = max(D_{t+1} - (Lpre + q), 0)
+             overage = max((Lpre + q) - D_{t+1}, 0)
+    4) Use newsvendor fractile p* = cu/(cu+co) on W = D_{t+1} - Lpre
     
     Args:
-        h1_pmf: Demand PMF for horizon t+1
-        h2_pmf: Demand PMF for horizon t+2
-        I0: On-hand inventory at start of epoch t (before arrivals)
-        Q1: Order arriving at week t+1
-        Q2: Order arriving at week t+2
+        h1_pmf: Demand PMF for current week t
+        h2_pmf: Demand PMF for next week t+1
+        I0: On-hand inventory at start of epoch t (before Q1 arrival)
+        Q1: Order arriving at start of week t (placed at t-2)
+        Q2: Order arriving at start of week t+1 (placed at t-1)
         costs: Cost parameters (holding=co, shortage=cu)
-        micro_refine: If True, check q±1 around fractile solution
+        micro_refine: If True, check q±{1,2} around fractile solution
     
     Returns:
-        (q_star, cost_star): Optimal order quantity and expected cost
+        (q_star, cost_star): Optimal order quantity and expected cost at week t+1
     """
     h1 = _safe_pmf(h1_pmf)
     h2 = _safe_pmf(h2_pmf)
