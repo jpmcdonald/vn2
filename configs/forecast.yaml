@@ -41,11 +41,11 @@ models:
     type: poisson
   
   zinb:
-    enabled: false
+    enabled: true
     type: negbin
   
   lightgbm_quantile:
-    enabled: false
+    enabled: true
     max_depth: 6
     num_leaves: 31
     learning_rate: 0.05
@@ -85,7 +85,7 @@ models:
     use_surd: true
   
   linear_quantile:
-    enabled: false
+    enabled: true
     alpha: 1.0
     solver: highs
   
@@ -110,7 +110,7 @@ models:
     min_data_in_leaf: 20
   
   qrf:
-    enabled: false
+    enabled: true
     n_estimators: 100
     max_depth: 10
     min_samples_leaf: 5

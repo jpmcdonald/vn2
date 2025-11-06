@@ -80,9 +80,11 @@ class LightGBMQuantileForecaster(BaseForecaster):
         if len(X) < self.min_data_in_leaf * 2:
             # Not enough data to train
             self.models_ = {}
+            self._y_train = y  # Store for fallback
             return self
         
         self.feature_names_ = X.columns.tolist()
+        self._y_train = y  # Store for fallback quantiles
         
         # Train a model for each quantile
         for q in self.config.quantiles:
@@ -171,10 +173,20 @@ class LightGBMQuantileForecaster(BaseForecaster):
         Returns:
             DataFrame with index=steps and columns=quantiles
         """
+        # Calculate fallback values from historical data (avoid pure zeros)
+        if hasattr(self, '_y_train') and self._y_train is not None:
+            # Use historical quantiles as fallback
+            fallback_quantiles = np.quantile(self._y_train[self._y_train > 0], self.config.quantiles) if len(self._y_train[self._y_train > 0]) > 0 else np.ones(len(self.config.quantiles)) * 0.1
+            # Ensure minimum values to prevent zero-cost predictions
+            fallback_quantiles = np.maximum(fallback_quantiles, 0.1)
+        else:
+            # Conservative fallback: assume at least some demand
+            fallback_quantiles = np.maximum(np.array(self.config.quantiles) * 2.0, 0.1)
+        
         if not self.models_:
-            # Model not trained, return zeros
+            # Model not trained, use fallback
             result = pd.DataFrame(
-                0.0, 
+                [fallback_quantiles] * steps, 
                 index=range(1, steps + 1), 
                 columns=self.config.quantiles
             )
@@ -182,9 +194,9 @@ class LightGBMQuantileForecaster(BaseForecaster):
             return result
         
         if X_future is None or len(X_future) < steps:
-            # No features provided, return zeros
+            # No features provided, use fallback
             result = pd.DataFrame(
-                0.0, 
+                [fallback_quantiles] * steps, 
                 index=range(1, steps + 1), 
                 columns=self.config.quantiles
             )
@@ -196,12 +208,20 @@ class LightGBMQuantileForecaster(BaseForecaster):
         for step_idx in range(steps):
             X_step = X_future.iloc[step_idx:step_idx+1]
             quantile_values = []
-            for q in self.config.quantiles:
+            for i, q in enumerate(self.config.quantiles):
                 if q in self.models_:
                     pred = self.models_[q].predict(X_step)[0]
-                    quantile_values.append(max(0, pred))
+                    # Apply minimum variance floor and ensure monotonicity
+                    pred = max(pred, fallback_quantiles[i] * 0.1)  # At least 10% of fallback
+                    quantile_values.append(pred)
                 else:
-                    quantile_values.append(0.0)
+                    quantile_values.append(fallback_quantiles[i])
+            
+            # Ensure monotonicity: q_i <= q_j for i < j
+            quantile_values = np.array(quantile_values)
+            for i in range(1, len(quantile_values)):
+                quantile_values[i] = max(quantile_values[i], quantile_values[i-1])
+            
             forecasts.append(quantile_values)
         
         result = pd.DataFrame(

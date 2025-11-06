@@ -48,10 +48,10 @@ class CrostonForecaster(BaseForecaster):
         nonzero_indices = np.where(y_vals > 0)[0]
         
         if len(nonzero_indices) == 0:
-            # No demand observed
-            self.interval_forecast_ = len(y_vals)
-            self.size_forecast_ = 0.0
-            self.probability_demand_ = 0.0
+            # No demand observed - use conservative fallback
+            self.interval_forecast_ = max(len(y_vals), 4)  # At least 4 periods
+            self.size_forecast_ = 1.0  # Assume at least 1 unit when demand occurs
+            self.probability_demand_ = 0.1  # Small but non-zero probability
             self.is_fitted_ = True
             return self
         
@@ -70,22 +70,22 @@ class CrostonForecaster(BaseForecaster):
         # Forecast depends on variant
         if self.variant == 'classic':
             # Croston (1972): E[D] = size / interval
-            self.interval_forecast_ = interval_smooth
-            self.size_forecast_ = size_smooth
+            self.interval_forecast_ = max(interval_smooth, 1.0)  # At least 1 period
+            self.size_forecast_ = max(size_smooth, 0.5)  # At least 0.5 units
             
         elif self.variant == 'sba':
             # Syntetos-Boylan Approximation (2001)
             # Adjusts for bias in Croston
-            self.interval_forecast_ = interval_smooth
-            self.size_forecast_ = size_smooth * (1 - self.alpha / 2)
+            self.interval_forecast_ = max(interval_smooth, 1.0)
+            self.size_forecast_ = max(size_smooth * (1 - self.alpha / 2), 0.5)
             
         elif self.variant == 'tsb':
             # Teunter-Syntetos-Babai (2011)
             # Directly forecasts probability and size
-            p = 1 / interval_smooth if interval_smooth > 0 else 0
-            self.probability_demand_ = p
-            self.size_forecast_ = size_smooth
-            self.interval_forecast_ = interval_smooth
+            p = 1 / interval_smooth if interval_smooth > 0 else 0.1
+            self.probability_demand_ = min(max(p, 0.01), 0.9)  # Bound probability
+            self.size_forecast_ = max(size_smooth, 0.5)
+            self.interval_forecast_ = max(interval_smooth, 1.0)
         else:
             raise ValueError(f"Unknown variant: {self.variant}")
         
