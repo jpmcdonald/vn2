@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""
-Generate Week 5 guardrail and selector override files.
+"""Generate guardrail and selector override files for a configurable week.
 
-Analyzes W1-W4 actuals to identify under-forecasting SKUs and generate:
-- reports/guardrail_overrides_w5.csv
-- reports/selector_overrides_w5.csv
+Analyzes Weeks 1..N actuals to flag under-forecasting SKUs and write:
+- reports/guardrail_overrides_w{N+1}.csv (by default)
+- reports/selector_overrides_w{N+1}.csv (by default)
 """
 
 import argparse
 from pathlib import Path
+from typing import Dict
 import pickle
 import numpy as np
 import pandas as pd
@@ -22,27 +22,35 @@ from vn2.analyze.sequential_planner import (
     leftover_from_stock_and_demand, expected_pos_neg_from_Z, leftover_from_Z,
 )
 
+WEEK_SALES_FILES: Dict[int, Path] = {
+    1: Path('data/raw/Week 1 - 2024-04-15 - Sales.csv'),
+    2: Path('data/raw/Week 2 - 2024-04-22 - Sales.csv'),
+    3: Path('data/raw/Week 3 - 2024-04-29 - Sales.csv'),
+    4: Path('data/raw/Week 4 - 2024-05-06 - Sales.csv'),
+    5: Path('data/raw/Week 5 - 2024-05-13 - Sales.csv'),
+}
+
 
 def ensure_parent(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def extract_actuals_w1_w4() -> dict:
-    """Extract actual demand from Week 1-4 sales files."""
-    week_paths = {
-        1: Path('data/raw/Week 1 - 2024-04-15 - Sales.csv'),
-        2: Path('data/raw/Week 2 - 2024-04-22 - Sales.csv'),
-        3: Path('data/raw/Week 3 - 2024-04-29 - Sales.csv'),
-        4: Path('data/raw/Week 4 - 2024-05-06 - Sales.csv'),
-    }
-    actuals = {}
-    for w, p in week_paths.items():
-        if not p.exists():
+def extract_actuals_up_to_week(target_week: int) -> Dict[int, pd.DataFrame]:
+    """Extract actual demand from Week 1..target_week sales files."""
+    actuals: Dict[int, pd.DataFrame] = {}
+    for week in range(1, target_week + 1):
+        sales_path = WEEK_SALES_FILES.get(week)
+        if sales_path is None:
+            print(f"Warning: No configured sales file for week {week}")
             continue
-        df = pd.read_csv(p)
-        # Last column is the week demand
+        if not sales_path.exists():
+            print(f"Warning: Sales file missing for week {week}: {sales_path}")
+            continue
+        df = pd.read_csv(sales_path)
         week_col = df.columns[-1]
-        actuals[w] = df[['Store','Product', week_col]].rename(columns={week_col: f'actual_w{w}'})
+        actuals[week] = df[['Store', 'Product', week_col]].rename(
+            columns={week_col: f'actual_w{week}'}
+        )
     return actuals
 
 
@@ -100,9 +108,8 @@ def compute_calibration(selector_map: pd.DataFrame,
             if h not in qdf.index:
                 continue
             q = qdf.loc[h].values
-            # Find actual for this horizon (weeks 1-4, so h=1 corresponds to week 1,2,3,4)
-            # For simplicity, use h=1 forecasts compared to week 1,2,3,4 actuals
-            # and h=2 forecasts compared to week 2,3,4 actuals
+            # Compare h=1 forecasts to same-week actuals (weeks 1..target)
+            # Additional horizons (h=2, h=3) may be extended similarly if needed.
             pit_vals = []
             pinball_losses = []
             for week in actuals.keys():
@@ -171,7 +178,7 @@ def score_underforecast(calib_df: pd.DataFrame,
     return pd.DataFrame(records)
 
 
-def write_overrides(out_csv: Path, flags_df: pd.DataFrame):
+def write_overrides(out_csv: Path, flags_df: pd.DataFrame, week_range_label: str):
     """Write guardrail overrides CSV."""
     ensure_parent(out_csv)
     if flags_df.empty or not flags_df['flag'].any():
@@ -182,7 +189,7 @@ def write_overrides(out_csv: Path, flags_df: pd.DataFrame):
     recs['Product'] = recs['product'].astype(int)
     recs['service_level_override'] = 0.88
     recs['sigma_multiplier'] = 1.15
-    recs['reason'] = 'Under-forecast score threshold met (W1–W4)'
+    recs['reason'] = f'Under-forecast score threshold met ({week_range_label})'
     recs[['Store','Product','service_level_override','sigma_multiplier','reason']].to_csv(out_csv, index=False)
 
 
@@ -195,12 +202,20 @@ def write_selector_overrides(out_csv: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--selector-map', type=Path, default=Path('models/results/selector_map_bias_adjusted.parquet'))
-    ap.add_argument('--out-guardrails', type=Path, default=Path('reports/guardrail_overrides_w5.csv'))
-    ap.add_argument('--out-selector', type=Path, default=Path('reports/selector_overrides_w5.csv'))
+    ap.add_argument('--target-week', type=int, default=5, help='Latest completed week to include (>=1)')
+    ap.add_argument('--out-guardrails', type=Path, default=None, help='Output CSV for guardrail overrides (defaults to reports/guardrail_overrides_w{target+1}.csv)')
+    ap.add_argument('--out-selector', type=Path, default=None, help='Output CSV for selector overrides (defaults to reports/selector_overrides_w{target+1}.csv)')
     args = ap.parse_args()
 
-    print("Generating Week 5 override files...")
-    
+    if args.target_week < 1:
+        print("Error: target-week must be >= 1")
+        return 1
+
+    guardrail_out = args.out_guardrails or Path(f'reports/guardrail_overrides_w{args.target_week + 1}.csv')
+    selector_out = args.out_selector or Path(f'reports/selector_overrides_w{args.target_week + 1}.csv')
+
+    print(f"Generating override files using Weeks 1–{args.target_week} actuals...")
+
     # Load selector map
     if not args.selector_map.exists():
         print(f"Error: Selector map not found: {args.selector_map}")
@@ -209,7 +224,7 @@ def main():
     print(f"Loaded selector map with {len(selector)} SKUs")
 
     # Load actuals
-    actuals = extract_actuals_w1_w4()
+    actuals = extract_actuals_up_to_week(args.target_week)
     print(f"Loaded actuals for weeks: {list(actuals.keys())}")
     if not actuals:
         print("Error: No actuals data found")
@@ -230,16 +245,18 @@ def main():
     print(f"Flagged {flagged_count} SKUs for guardrails")
 
     # Write outputs
-    write_overrides(args.out_guardrails, flags_df)
-    write_selector_overrides(args.out_selector)
-    
-    print(f"✓ Guardrails written: {args.out_guardrails}")
-    print(f"✓ Selector overrides written: {args.out_selector}")
-    
+    week_range_label = f"W1–W{args.target_week}"
+    write_overrides(guardrail_out, flags_df, week_range_label)
+    write_selector_overrides(selector_out)
+
+    print(f"✓ Guardrails written: {guardrail_out}")
+    print(f"✓ Selector overrides written: {selector_out}")
+
     return 0
 
 
 if __name__ == '__main__':
     exit(main())
+
 
 
