@@ -10,7 +10,7 @@ This document describes the methodology for backtesting our forecasting and inve
 4. **Compare to leaderboard** to determine what our competition outcome might have been
 5. **Identify gaps** between our performance and top performers
 
-**Status**: ⚠️ **Partial Implementation** - We are missing the last 2-3 weeks of actual sales/demand data (Weeks 6-8) required for a complete backtest.
+**Status**: ⚠️ **Partial Implementation** — Actual sales files for Weeks 1–8 may have been added; see [Data inventory](DATA_INVENTORY.md) for current file status. When all 8 weeks of Sales CSVs are present, run simulation with `--weeks 1 2 3 4 5 6 7 8` and update this status to full.
 
 ---
 
@@ -21,24 +21,31 @@ This document describes the methodology for backtesting our forecasting and inve
 | Data Type | Weeks Available | Location | Status |
 |-----------|-----------------|----------|--------|
 | Initial State | Week 0 | `data/raw/Week 0 - 2024-04-08 - Initial State.csv` | ✅ Complete |
-| Sales/Demand | Weeks 1-5 | `data/raw/Week 0 - 2024-04-08 - Sales.csv` + weekly files | ✅ Complete |
-| State Files | Weeks 1-5 | `data/states/state*.csv` | ✅ Complete |
-| Leaderboards | Weeks 1-8 | `data/raw/leaderboards/Week*.txt` | ✅ Complete |
-| Final Leaderboard | Week 8 | `data/raw/leaderboards/FinalScore.txt` | ✅ Complete |
+| Historical Sales | Through Week 0 | `data/raw/Week 0 - 2024-04-08 - Sales.csv` | ✅ Complete |
+| Competition actuals | Weeks 1–8 | `data/raw/Week N - YYYY-MM-DD - Sales.csv` (N=1..8) | See [DATA_INVENTORY.md](DATA_INVENTORY.md) |
+| State Files | Optional | `data/states/state*.csv` | If available |
+| Leaderboards | Per-week | `data/raw/leaderboards/Week*.txt` | Week3, Week4 present; others optional |
+| Cumulative / Final | 8-week | `data/raw/leaderboards/cumulative-leaderboard.txt` or `FinalScore.txt` | cumulative-leaderboard present; FinalScore optional |
 
-### Missing Data
+### Missing Data (when not yet added)
 
 | Data Type | Weeks Missing | Impact |
 |-----------|---------------|--------|
-| **Actual Sales** | Weeks 6-8 | Cannot compute realized costs for final 3 weeks |
-| **State Files** | Weeks 6-8 | Cannot propagate inventory state accurately |
-| **Demand Data** | Weeks 6-8 | Cannot validate forecast accuracy |
+| **Actual Sales** | Weeks 1–8 (or 6–8) | Cannot compute realized costs for those weeks |
+| **State Files** | Weeks 6–8 | Cannot propagate inventory state accurately |
+| **Demand Data** | Weeks 6–8 | Cannot validate forecast accuracy |
 
-**Note**: Without Weeks 6-8 actual demand, we can:
-- ✅ Backtest Weeks 1-5 completely
-- ✅ Estimate Weeks 6-8 using forecasted demand (less accurate)
-- ❌ Cannot compute exact realized costs for Weeks 6-8
-- ❌ Cannot validate final competition placement
+**Note**: With only Week 0 and historical sales we can train and run benchmark; with Weeks 1–5 we can backtest through week 5; with all 8 weeks we can compute exact 8-week cost and compare to leaderboard.
+
+### Data preparation: demand_long.parquet
+
+Many scripts expect `data/processed/demand_long.parquet` (long format: Store, Product, week, demand). Build it from Week 0 and any Week 1–8 Sales CSVs using:
+
+```bash
+python scripts/build_demand_long.py --raw-dir data/raw --out data/processed/demand_long.parquet
+```
+
+See [DATA_INVENTORY.md](DATA_INVENTORY.md) for the full data inventory and leaderboard format (including `cumulative-leaderboard.txt` vs `FinalScore.txt`).
 
 ---
 
@@ -113,9 +120,11 @@ python scripts/full_L3_simulation.py \
     --co 0.2
 ```
 
+When all 8 weeks of Sales files are present, use `--weeks 1 2 3 4 5 6 7 8` for a full 8-week backtest.
+
 #### Simulation Steps
 
-For each week t ∈ {1, 2, ..., 5}:
+For each week t ∈ {1, 2, ..., 5} (or 1..8 when data available):
 
 1. **Load state**: Current inventory, in-transit orders
 2. **Load forecasts**: h=1, h=2, h=3 quantile forecasts for week t, t+1, t+2
@@ -189,13 +198,18 @@ Week 1 costs are **uncontrollable** (orders placed before competition start):
 
 ### 4. Leaderboard Comparison
 
-#### Loading Leaderboard Data
+#### Leaderboard sources
+
+- **FinalScore.txt** (optional): If exported from the competition site as tab-separated (e.g. name, score, rank), use it for programmatic comparison. Scripts such as `scripts/simulate_L3_costs.py` default to `data/raw/leaderboards/FinalScore.txt`.
+- **cumulative-leaderboard.txt**: Web paste of the final leaderboard; contains "Cumulative" section with rank, name, and tab-separated fields (order cost, cumulative cost, etc.). Use `parse_cumulative_leaderboard()` in `src/vn2/competition/leaderboard_parser.py` to extract our cost, benchmark cost, and winner cost. Our entry: "Patrick McDonald"; benchmark: "Benchmark Benchmark".
+
+#### Loading leaderboard data (example with FinalScore)
 
 ```python
 import pandas as pd
 from pathlib import Path
 
-# Load final leaderboard
+# If FinalScore.txt exists (tab-sep: name, score, rank)
 leaderboard = pd.read_csv('data/raw/leaderboards/FinalScore.txt', sep='\t')
 
 # Find our entry
@@ -206,6 +220,8 @@ winner_cost = leaderboard['score'].min()
 our_cost = our_entry['score'].iloc[0]
 our_rank = our_entry['rank'].iloc[0]
 ```
+
+For `cumulative-leaderboard.txt`, use `parse_cumulative_leaderboard()` in `src/vn2/competition/leaderboard_parser.py` to get our cost, benchmark cost, and winner cost.
 
 #### Comparison Metrics
 
@@ -400,6 +416,10 @@ estimated_8week_total = weeks_1_5_cost + estimated_weeks_6_8
 
 ## Next Steps
 
+### Next two weeks (action list)
+
+See **[docs/NEXT_TWO_WEEKS.md](NEXT_TWO_WEEKS.md)** for a concrete Week 1 / Week 2 task list (data, backtest, benchmark comparison, forecast error report, lessons learned).
+
 ### When Weeks 6-8 Data Arrives
 
 1. **Complete backtest**: Run full 8-week simulation
@@ -421,15 +441,23 @@ estimated_8week_total = weeks_1_5_cost + estimated_weeks_6_8
 3. **Could we have done better?**: Counterfactual analysis
 4. **What did winners do differently?**: Comparative analysis (if possible)
 
+### AI agents vs our pipeline
+
+See **[docs/WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md)** (“AI agents vs our pipeline”): the [notebooks/forecast_agents.ipynb](../notebooks/forecast_agents.ipynb) arena evaluates agents on MASE/RMSE, not inventory cost. For a fair comparison, run agent forecasts through our cost sim and compare 8-week cost.
+
 ---
 
 ## References
 
 ### Related Documentation
 
-- `docs/backtesting_harness.md` - Backtest harness usage
-- `docs/pipelines/sequential_backtest.md` - Sequential backtest pipeline
-- `docs/L3_LEAD_TIME_ANALYSIS.md` - Lead time error analysis
+- [docs/DATA_INVENTORY.md](DATA_INVENTORY.md) - Data file inventory and demand_long build
+- [docs/WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) - Why we didn't beat the benchmark; AI agents vs pipeline
+- [docs/NEXT_TWO_WEEKS.md](NEXT_TWO_WEEKS.md) - Action list for next two weeks
+- [docs/LESSONS_LEARNED_MEETUP.md](LESSONS_LEARNED_MEETUP.md) - Lessons learned (meetup)
+- [docs/backtesting_harness.md](backtesting_harness.md) - Backtest harness usage
+- [docs/pipelines/sequential_backtest.md](pipelines/sequential_backtest.md) - Sequential backtest pipeline
+- [docs/L3_LEAD_TIME_ANALYSIS.md](L3_LEAD_TIME_ANALYSIS.md) - Lead time error analysis
 - `reports/surd_effectiveness_report.md` - SURD transform analysis
 
 ### Key Scripts

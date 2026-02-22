@@ -239,6 +239,68 @@ def calculate_performance_metrics(leaderboard_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(metrics)
 
 
+def parse_cumulative_leaderboard(file_path: Path) -> pd.DataFrame:
+    """
+    Parse cumulative-leaderboard.txt (web paste from competition site).
+
+    Expects format: line "Cumulative", then optional headers, then repeated
+    blocks of: rank (digit), blank line, name, tab-separated data line.
+    Data line is either "apply order_cost cumulative_cost entries last" or
+    "country apply order_cost cumulative_cost entries last". Returns DataFrame
+    with columns rank, name, order_cost, cumulative_cost, score (= cumulative_cost).
+    """
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    lines = content.split('\n')
+    start = 0
+    for i, line in enumerate(lines):
+        if line.strip() == 'Cumulative':
+            start = i + 1
+            break
+
+    rows = []
+    i = start
+    while i < len(lines):
+        line = lines[i].strip()
+        i += 1
+        if not line or 'Data Scientist' in line or line.startswith('#') or 'Rankings' in line:
+            continue
+        if line.isdigit():
+            rank = int(line)
+            while i < len(lines) and not lines[i].strip():
+                i += 1
+            if i >= len(lines):
+                break
+            name = lines[i].strip()
+            i += 1
+            if i >= len(lines):
+                break
+            data_line = lines[i].strip()
+            i += 1
+            parts = [p.strip() for p in data_line.split('\t') if p.strip()]
+            try:
+                # Data line: either (apply, order_cost, cum_cost, ...) or (country, apply, order_cost, cum_cost, ...)
+                if len(parts) >= 3 and parts[0].isdigit():
+                    order_cost = float(parts[1])
+                    cumulative_cost = float(parts[2])
+                elif len(parts) >= 4:
+                    order_cost = float(parts[2])
+                    cumulative_cost = float(parts[3])
+                else:
+                    continue
+                rows.append({
+                    'rank': rank,
+                    'name': name,
+                    'order_cost': order_cost,
+                    'cumulative_cost': cumulative_cost,
+                    'score': cumulative_cost,
+                })
+            except (ValueError, IndexError):
+                continue
+    return pd.DataFrame(rows)
+
+
 def identify_our_performance(leaderboard_df: pd.DataFrame, our_name: str = "Patrick McDonald") -> Dict:
     """
     Identify our performance in the leaderboards.

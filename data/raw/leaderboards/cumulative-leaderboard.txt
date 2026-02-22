@@ -1,0 +1,783 @@
+
+Datathon
+Explore
+Manage
+Learn
+Finished
+competition-bg
+VN2 Inventory Planning Challenge
+Test your inventory planning skills: cut holding costs, prevent shortages, and master real-world inventory planning.
+
+ DataSource.AI
+E-commerce/Retail
+Total Prize
+18,000
+EURO
+
+Share
+Description
+Datasets
+Leaderboards
+Notebooks
+Discussions
+Updates
+Teams
+Rules
+My Submissions
+Join Datathon
+Public
+Private
+This leaderboard ranks individual competitors and their best score. Public leaderboard is open while competition is open, a user can send as many models as they want.
+
+Order #1 Completed
+Order #2 Completed
+Order #3 Completed
+Order #4 Completed
+Order #5 Completed
+Order #6 Completed
+Order #7 Completed
+Order #8 Completed
+Cumulative
+Order #1 Rankings (Order Cost)
+#
+Data Scientist	Country	#Apply	Order Cost	Cumulative Cost	Entries	Last	Team
+1
+
+Emmy
+Uganda	1	380.6	380.6	1	4 months ago	
+2
+
+Daniel Morales Perez
+Albania	1	380.6	380.6	1	5 months ago	
+3
+
+Alexandre .
+1	380.6	380.6	1	4 months ago	
+4
+
+Wasim Mondal
+1	380.6	380.6	1	4 months ago	
+5
+
+Mohamed Hefnawy
+1	380.6	380.6	1	4 months ago	
+6
+
+Jack Rodenberg
+2	380.6	380.6	2	4 months ago	
+7
+
+Miguel Eersel
+1	380.6	380.6	1	4 months ago	
+8
+
+Matias Alvo
+8	380.6	380.6	8	4 months ago	
+9
+
+Kiên Lê
+2	380.6	380.6	2	4 months ago	
+10
+
+Hozaifa Anwar
+1	380.6	380.6	1	4 months ago	
+11
+
+Wilfer Gutierrez
+1	380.6	380.6	1	4 months ago	
+12
+
+Daniel Emery
+1	380.6	380.6	1	4 months ago	
+13
+
+Antoine Schwartz
+2	380.6	380.6	2	4 months ago	
+14
+
+Santosh Puvvada
+1	380.6	380.6	1	4 months ago	
+15
+
+Babies Alexander
+3	380.6	380.6	3	5 months ago	
+16
+
+M Barak OURO-AKONDO
+4	380.6	380.6	4	4 months ago	
+17
+
+Bartosz Szabłowski
+6	380.6	380.6	6	4 months ago	
+18
+
+Rafal W
+2	380.6	380.6	2	4 months ago	
+19
+
+Adem Akgül
+1	380.6	380.6	1	4 months ago	
+20
+
+Alirio Arevalo
+1	380.6	380.6	1	4 months ago	
+21
+
+Aniket Patel
+1	380.6	380.6	1	4 months ago	
+22
+
+Gisele Nogueira
+3	380.6	380.6	3	5 months ago	
+23
+
+Aymeric Sévénier
+1	380.6	380.6	1	4 months ago	
+24
+
+Sundarachozhan somu
+1	380.6	380.6	1	4 months ago	
+25
+
+Claes Stefano
+3	380.6	380.6	3	4 months ago	
+26
+
+Pablo Sanchez
+1	380.6	380.6	1	4 months ago	
+27
+
+Guillaume Ruffloch
+2	380.6	380.6	2	4 months ago	
+28
+
+Prasenjit Datta
+1	380.6	380.6	1	4 months ago	
+29
+
+yannick .
+1	380.6	380.6	1	4 months ago	
+30
+
+An Hoang
+4	380.6	380.6	4	4 months ago	
+31
+
+Prajwal Sreenivas
+1	380.6	380.6	1	4 months ago	
+32
+
+Gouthaman Tharmathasan
+6	380.6	380.6	6	4 months ago	
+33
+
+Danilo Abril
+1	380.6	380.6	1	4 months ago	
+34
+
+Aaron Mc Grath
+1	380.6	380.6	1	5 months ago	
+35
+
+IMED MOUSSA
+1	380.6	380.6	1	5 months ago	
+36
+
+Beau Hunter
+1	380.6	380.6	1	5 months ago	
+37
+
+Khris Jones
+2	380.6	380.6	2	4 months ago	
+38
+
+Isaac Oluwafemi Ogunniyi
+1	380.6	380.6	1	4 months ago	
+39
+
+Francesco Colicino
+1	380.6	380.6	1	4 months ago	
+40
+
+Enrico Mantovani
+2	380.6	380.6	2	4 months ago	
+41
+
+Mario Valadez Trevino
+2	380.6	380.6	2	4 months ago	
+42
+
+Alberto Bitrian
+1	380.6	380.6	1	4 months ago	
+43
+
+Hervé Wan
+1	380.6	380.6	1	4 months ago	
+44
+
+Younès BOUAZZAOUI
+2	380.6	380.6	2	4 months ago	
+45
+
+Hung Michael
+3	380.6	380.6	3	4 months ago	
+46
+
+Vikram Purohit
+1	380.6	380.6	1	5 months ago	
+47
+
+Torben Windler
+2	380.6	380.6	2	4 months ago	
+48
+
+Latera Lus
+3	380.6	380.6	3	5 months ago	
+49
+
+Johann R.
+1	380.6	380.6	1	4 months ago	
+50
+
+João Sá
+2	380.6	380.6	2	4 months ago	
+51
+
+mindaugas zickus
+1	380.6	380.6	1	4 months ago	
+52
+
+Niranjan Dindodi
+1	380.6	380.6	1	4 months ago	
+53
+
+George Haws
+1	380.6	380.6	1	4 months ago	
+54
+
+Carlo Cavalieri
+3	380.6	380.6	3	4 months ago	
+55
+
+0e96fc10fdb2a5b5
+9	380.6	380.6	9	4 months ago	
+56
+
+David Armstrong
+1	380.6	380.6	1	5 months ago	
+57
+
+Robert Robison
+2	380.6	380.6	2	4 months ago	
+58
+
+Mustafa ÖZ
+2	380.6	380.6	2	5 months ago	
+59
+
+Arne Somers
+1	380.6	380.6	1	5 months ago	
+60
+
+Jana Ralfs
+1	380.6	380.6	1	4 months ago	
+61
+
+Joel John
+1	380.6	380.6	1	4 months ago	
+62
+
+Koosha TabatabaeiNikkhah
+1	380.6	380.6	1	4 months ago	
+63
+
+Julien Boistel
+1	380.6	380.6	1	4 months ago	
+64
+
+Knut Alicke
+3	380.6	380.6	3	4 months ago	
+65
+
+Alan Blaha
+1	380.6	380.6	1	4 months ago	
+66
+
+Osama Alamoudi
+1	380.6	380.6	1	4 months ago	
+67
+
+Juan R. Trapero
+2	380.6	380.6	2	4 months ago	
+68
+
+Nico Sprotti
+2	380.6	380.6	2	4 months ago	
+69
+
+Pio Lago
+1	380.6	380.6	1	4 months ago	
+70
+
+Marc D
+2	380.6	380.6	2	5 months ago	
+71
+
+Bradley Taylor
+1	380.6	380.6	1	4 months ago	
+72
+
+Enes Köser
+2	380.6	380.6	2	4 months ago	
+73
+
+Adolph Vogel
+1	380.6	380.6	1	4 months ago	
+74
+
+Brandon O'Donnell
+2	380.6	380.6	2	4 months ago	
+75
+
+Elliott Byfield
+1	380.6	380.6	1	4 months ago	
+76
+
+Fred Weidemann
+1	380.6	380.6	1	4 months ago	
+77
+
+Mark Graham
+1	380.6	380.6	1	4 months ago	
+78
+
+Federico Marchesi
+1	380.6	380.6	1	4 months ago	
+79
+
+Declan McAlinden
+2	380.6	380.6	2	4 months ago	
+80
+
+John Woodward
+2	380.6	380.6	2	4 months ago	
+81
+
+Sailesh Kolachana
+2	380.6	380.6	2	4 months ago	
+82
+
+Mesut Duman
+1	380.6	380.6	1	4 months ago	
+83
+
+Alex Bernal
+1	380.6	380.6	1	4 months ago	
+84
+
+Frederico Silva
+1	380.6	380.6	1	4 months ago	
+85
+
+Jan Hesse
+1	380.6	380.6	1	4 months ago	
+86
+
+Jonas Jakubassa
+1	380.6	380.6	1	4 months ago	
+87
+
+Olivier JONARD
+3	380.6	380.6	3	4 months ago	
+88
+
+Gonzalo Chiarlone
+1	380.6	380.6	1	4 months ago	
+89
+
+Marc Rovira
+1	380.6	380.6	1	4 months ago	
+90
+
+Ivan Hermans
+1	380.6	380.6	1	4 months ago	
+91
+
+Burhan Yıldız
+1	380.6	380.6	1	5 months ago	
+92
+
+Isaac Forzan
+1	380.6	380.6	1	4 months ago	
+93
+
+Monim c
+1	380.6	380.6	1	5 months ago	
+94
+
+Corey Michaud
+1	380.6	380.6	1	5 months ago	
+95
+
+Ryan Harris
+1	380.6	380.6	1	4 months ago	
+96
+
+ilaria egoli
+1	380.6	380.6	1	4 months ago	
+97
+
+Vi Duong
+2	380.6	380.6	2	4 months ago	
+98
+
+Sara Boya
+1	380.6	380.6	1	4 months ago	
+99
+
+jan rathfelder
+2	380.6	380.6	2	4 months ago	
+100
+
+Damian g Almaraz
+1	380.6	380.6	1	4 months ago	
+101
+
+Herman Zubovich
+1	380.6	380.6	1	4 months ago	
+102
+
+Zishan1 Yusuf
+1	380.6	380.6	1	4 months ago	
+103
+
+Lucas Argento
+1	380.6	380.6	1	4 months ago	
+104
+
+Mahendra Prakash
+1	380.6	380.6	1	4 months ago	
+105
+
+Rouan van der Ende
+1	380.6	380.6	1	4 months ago	
+106
+
+Saivikas Potluri
+3	380.6	380.6	3	5 months ago	
+107
+
+FlowlineGuillaume CLEMENT
+12	380.6	380.6	12	4 months ago	
+108
+
+Patrick Helm
+1	380.6	380.6	1	4 months ago	
+109
+
+Andrew MacKenzie
+3	380.6	380.6	3	4 months ago	
+110
+
+Anizio Campos Pereira
+2	380.6	380.6	2	4 months ago	
+111
+
+Madison Wells
+1	380.6	380.6	1	4 months ago	
+112
+
+Naveen Jonnalagadda
+1	380.6	380.6	1	4 months ago	
+113
+
+Sankar Abinav
+1	380.6	380.6	1	4 months ago	
+114
+
+Richard Plat
+1	380.6	380.6	1	4 months ago	
+115
+
+Joseph Bowyer
+1	380.6	380.6	1	4 months ago	
+116
+
+Patrick McDonald
+1	380.6	380.6	1	4 months ago	
+117
+
+Lelian ETOA
+1	380.6	380.6	1	4 months ago	
+118
+
+Michael Kenning
+1	380.6	380.6	1	4 months ago	
+119
+
+Stefano Damato
+2	380.6	380.6	2	4 months ago	
+120
+
+Sandip Shaw
+1	380.6	380.6	1	4 months ago	
+121
+
+Andrew Henrey
+1	380.6	380.6	1	4 months ago	
+122
+
+Baris Yalcin
+2	380.6	380.6	2	4 months ago	
+123
+
+Ray Duan
+1	380.6	380.6	1	4 months ago	
+124
+
+Emmanuel Gomez
+1	380.6	380.6	1	4 months ago	
+125
+
+Amrinder Rai
+2	380.6	380.6	2	4 months ago	
+126
+
+Anubhab Biswas
+2	380.6	380.6	2	4 months ago	
+127
+
+Kevin Wesendrup
+1	380.6	380.6	1	4 months ago	
+128
+
+José Ignacio Ortega Labra
+3	380.6	380.6	3	4 months ago	
+129
+
+Gaurav .
+3	380.6	380.6	3	4 months ago	
+130
+
+Harini Kidambi Sekar
+2	380.6	380.6	2	4 months ago	
+131
+
+Fernando Gomez de Parada
+3	380.6	380.6	3	4 months ago	
+132
+
+Benchmark Benchmark
+2	380.6	380.6	2	5 months ago	
+133
+
+David Kooistra
+1	380.6	380.6	1	4 months ago	
+134
+
+Walter Italo Antaurco Anticona
+1	380.6	380.6	1	4 months ago	
+135
+
+Matt Motoki
+1	380.6	380.6	1	4 months ago	
+136
+
+Karl. Schubert
+1	380.6	380.6	1	4 months ago	
+137
+
+Adeyinka Sotunde
+2	380.6	380.6	2	5 months ago	
+138
+
+Motoki Saitama
+3	380.6	380.6	3	4 months ago	
+139
+
+Christopher Wang
+3	380.6	380.6	3	4 months ago	
+140
+
+Luis de Quadras
+1	380.6	380.6	1	4 months ago	
+141
+
+Michael Ibrahim
+2	380.6	380.6	2	4 months ago	
+142
+
+Mo Ze
+1	380.6	380.6	1	4 months ago	
+143
+
+Miguel Torres Rodriguez
+1	380.6	380.6	1	4 months ago	
+144
+
+Milan Peelman
+1	380.6	380.6	1	4 months ago	
+145
+
+Yoontae Park
+2	380.6	380.6	2	4 months ago	
+146
+
+Sandeep .
+2	380.6	380.6	2	4 months ago	
+147
+
+Pavel Novikov
+4	380.6	380.6	4	4 months ago	
+148
+
+48da6d31c9e3adb9
+2	380.6	380.6	2	4 months ago	
+149
+
+Rhythm Suthar
+1	380.6	380.6	1	4 months ago	
+150
+
+Shuyang Zhang
+3	380.6	380.6	3	4 months ago	
+151
+
+Akhil Kosuri
+2	380.6	380.6	2	4 months ago	
+152
+
+Désiré Dosseh
+2	380.6	380.6	2	4 months ago	
+153
+
+Timothee Dubus
+1	380.6	380.6	1	4 months ago	
+154
+
+Jose Quintana
+1	380.6	380.6	1	4 months ago	
+155
+
+Sebastian Fietz
+2	380.6	380.6	2	4 months ago	
+156
+
+Muhammad Moin Qamar
+1	380.6	380.6	1	4 months ago	
+157
+
+Liz Bochner
+1	380.6	380.6	1	4 months ago	
+158
+
+Adam Jesionka
+1	380.6	380.6	1	4 months ago	
+159
+
+Hugh Walters
+1	380.6	380.6	1	4 months ago	
+160
+
+Trung Kiên Nguyễn
+1	380.6	380.6	1	4 months ago	
+161
+
+Lav Kush
+3	380.6	380.6	3	4 months ago	
+162
+
+Gaspard BURLIN
+1	380.6	380.6	1	4 months ago	
+163
+
+Leonardo Ribeiro
+3	380.6	380.6	3	4 months ago	
+164
+
+A K
+1	380.6	380.6	1	4 months ago	
+165
+
+Paul Pawletta
+1	380.6	380.6	1	4 months ago	
+166
+
+brandon smith
+1	380.6	380.6	1	4 months ago	
+167
+
+Tejaswini Pemmaraju
+2	380.6	380.6	2	4 months ago	
+168
+
+Bartosz Loba
+1	380.6	380.6	1	4 months ago	
+169
+
+Kimteor K
+1	380.6	380.6	1	4 months ago	
+170
+
+Umair Shahid
+1	380.6	380.6	1	4 months ago	
+171
+
+Sonal B
+1	380.6	380.6	1	4 months ago	
+172
+
+Philipp Hallmeier
+1	380.6	380.6	1	4 months ago	
+173
+
+Lorenzo Zambon
+2	380.6	380.6	2	4 months ago	
+174
+
+Marcos Tidball
+1	380.6	380.6	1	4 months ago	
+175
+
+Jake Comp
+1	380.6	380.6	1	4 months ago	
+176
+
+BOXD
+1	380.6	380.6	1	4 months ago	
+177
+
+The Frugal Five
+4	380.6	380.6	4	4 months ago	
+178
+
+Flow Masters
+1	380.6	380.6	1	4 months ago	
+179
+
+Objectif 20
+4	380.6	380.6	4	4 months ago	
+180
+
+A²
+1	380.6	380.6	1	4 months ago	
+181
+
+The Art of Noise
+1	380.6	380.6	1	4 months ago	
+182
+
+Invent_Opt
+1	380.6	380.6	1	4 months ago	
+183
+
+Priory Direct
+1	380.6	380.6	1	4 months ago	
+184
+
+AlKhawarizmi Pro Max
+2	380.6	380.6	2	4 months ago	
+185
+
+team25
+1	380.6	380.6	1	4 months ago	
