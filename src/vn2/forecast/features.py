@@ -234,16 +234,18 @@ def create_features(
         DataFrame with all features
     """
     # Filter to SKU
+    _dc = 'week_date' if 'week_date' in df.columns else 'week'
     sku_df = df[
         (df['Store'] == sku_id[0]) & (df['Product'] == sku_id[1])
-    ].sort_values('week_date').copy()
+    ].sort_values(_dc).copy()
     
     if len(sku_df) < lookback:
         # Insufficient history
         return pd.DataFrame()
     
-    y = sku_df['sales']
-    dates = pd.to_datetime(sku_df['week_date'])
+    _sc = 'sales' if 'sales' in sku_df.columns else 'demand'
+    y = sku_df[_sc]
+    dates = pd.to_datetime(sku_df[_dc])
     
     # Create feature dataframes
     features = []
@@ -308,9 +310,11 @@ def prepare_train_test_split(
     Returns:
         (y_train, X_train, y_test, X_test)
     """
+    _dc = 'week_date' if 'week_date' in df.columns else 'week'
+    _sc = 'sales' if 'sales' in df.columns else 'demand'
     sku_df = df[
         (df['Store'] == sku_id[0]) & (df['Product'] == sku_id[1])
-    ].sort_values('week_date')
+    ].sort_values(_dc)
     
     # Split point: holdout_weeks - fold_idx from end
     split_idx = len(sku_df) - (holdout_weeks - fold_idx)
@@ -319,7 +323,7 @@ def prepare_train_test_split(
         return None, None, None, None
     
     train_df = sku_df.iloc[:split_idx]
-    test_df = sku_df.iloc[split_idx:split_idx + 2]  # h=1,2
+    test_df = sku_df.iloc[split_idx:split_idx + 3]  # h=1,2,3
     
     # Create features
     all_df = pd.concat([train_df, test_df])
@@ -332,8 +336,8 @@ def prepare_train_test_split(
     if X_all.empty:
         return None, None, None, None
     
-    y_train = train_df['sales']
-    y_test = test_df['sales']
+    y_train = train_df[_sc]
+    y_test = test_df[_sc]
     
     X_train = X_all.loc[train_df.index]
     X_test = X_all.loc[test_df.index]

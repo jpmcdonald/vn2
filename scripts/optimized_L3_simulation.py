@@ -195,6 +195,9 @@ def load_sales(sales_dir: Path, week: int) -> Dict[Tuple[int, int], int]:
         3: ("Week 3 - 2024-04-29 - Sales.csv", "2024-04-29"),
         4: ("Week 4 - 2024-05-06 - Sales.csv", "2024-05-06"),
         5: ("Week 5 - 2024-05-13 - Sales.csv", "2024-05-13"),
+        6: ("Week 6 - 2024-05-20 - Sales.csv", "2024-05-20"),
+        7: ("Week 7 - 2024-05-27 - Sales.csv", "2024-05-27"),
+        8: ("Week 8 - 2024-06-03 - Sales.csv", "2024-06-03"),
     }
     
     if week not in week_info:

@@ -301,6 +301,24 @@ def parse_cumulative_leaderboard(file_path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def top_20_percent_threshold(leaderboard_df: pd.DataFrame) -> Tuple[int, float]:
+    """
+    Compute cost threshold for top 20% (rank <= ceil(0.2 * N)).
+    
+    Returns:
+        (rank_threshold, cost_threshold): Competitors with cost <= cost_threshold are in top 20%.
+    """
+    if leaderboard_df.empty or 'cumulative_cost' not in leaderboard_df.columns:
+        return 0, np.inf
+    df = leaderboard_df.dropna(subset=['cumulative_cost']).sort_values('cumulative_cost').reset_index(drop=True)
+    n = len(df)
+    if n == 0:
+        return 0, np.inf
+    rank_threshold = int(np.ceil(0.2 * n))
+    cost_threshold = df.loc[rank_threshold - 1, 'cumulative_cost'] if rank_threshold <= n else df['cumulative_cost'].min()
+    return rank_threshold, float(cost_threshold)
+
+
 def identify_our_performance(leaderboard_df: pd.DataFrame, our_name: str = "Patrick McDonald") -> Dict:
     """
     Identify our performance in the leaderboards.

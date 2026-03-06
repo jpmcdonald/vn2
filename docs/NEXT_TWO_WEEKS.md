@@ -12,8 +12,9 @@ Concrete backtest and improvement steps following the post-competition review. S
 | **Build demand_long** | Run `python scripts/build_demand_long.py --raw-dir data/raw --out data/processed/demand_long.parquet` so training and eval scripts have long-format demand. |
 | **Update docs** | Confirm [backtesting_against_competition.md](backtesting_against_competition.md) and [DATA_INVENTORY.md](DATA_INVENTORY.md) match repo (status, file list). |
 | **Leaderboard** | Use `parse_cumulative_leaderboard()` ([src/vn2/competition/leaderboard_parser.py](../src/vn2/competition/leaderboard_parser.py)) on `data/raw/leaderboards/cumulative-leaderboard.txt` to extract our cost, benchmark cost, winner cost; document or save to a small table. |
-| **Full 8-week backtest** | Run full simulation with our submissions and actuals (e.g. `scripts/full_L3_simulation.py` with `--weeks 1 2 3 4 5 6 7 8` when data exists); record realized 8-week cost and compare to leaderboard. |
-| **Benchmark 8-week cost** | Run official benchmark logic ([notebooks/Official_Benchmark.py](../notebooks/Official_Benchmark.py) or equivalent) to get benchmark orders; run competition sim (L=3) with same actuals; record benchmark 8-week cost. |
+| **Full 8-week backtest** | Run `python scripts/full_L3_simulation.py --max-weeks 8` (uses correct fold per decision week, no leakage); record realized 8-week cost. |
+| **Benchmark 8-week cost** | Run `python scripts/run_rolling_benchmark_8week.py --raw-dir data/raw` (rolling seasonal MA + order-up-to, no leakage); record benchmark 8-week cost. |
+| **Compare to top 20%** | Run `python scripts/compare_8week_results.py --our-cost <cost> --benchmark-cost <cost>` to compare against winner and top-20% threshold from [cumulative-leaderboard.txt](data/raw/leaderboards/cumulative-leaderboard.txt). |
 
 ---
 
@@ -22,7 +23,7 @@ Concrete backtest and improvement steps following the post-competition review. S
 | Task | Action |
 |------|--------|
 | **Forecast error report** | Run [scripts/analyze_forecast_metrics.py](../scripts/analyze_forecast_metrics.py) and evaluation (pinball, CRPS, cost-based) per model/selector on holdout; fill [FORECAST_ERROR_SUMMARY.md](FORECAST_ERROR_SUMMARY.md). |
-| **Benchmark vs us vs winner** | Produce one summary table: benchmark 8-week cost, our 8-week cost, winner cost; short write-up in [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) or a short report. |
+| **Benchmark vs us vs winner** | Use `scripts/compare_8week_results.py` for table (our cost, benchmark cost, winner, top-20% threshold); short write-up in [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) or a short report. |
 | **Optional: agent forecasts** | One run of agent forecasts (from [notebooks/forecast_agents.ipynb](../notebooks/forecast_agents.ipynb)) through our cost sim for one week or a subset of SKUs to see if agent forecasts could have beaten us (cost-based). |
 | **Lessons learned** | Finalize [LESSONS_LEARNED_MEETUP.md](LESSONS_LEARNED_MEETUP.md) for the data science meetup. |
 

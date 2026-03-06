@@ -1,11 +1,11 @@
 paths:
-  processed: /Users/jpmcdonald/Code/vn2/data/processed
-  models: /Users/jpmcdonald/Code/vn2/models/trained
-  checkpoints: /Users/jpmcdonald/Code/vn2/models/checkpoints
-  results: /Users/jpmcdonald/Code/vn2/models/results
+  processed: /Users/jpmcdonald/Code/vn2/vn2/data/processed
+  models: /Users/jpmcdonald/Code/vn2/vn2/models/trained
+  checkpoints: /Users/jpmcdonald/Code/vn2/vn2/models/checkpoints
+  results: /Users/jpmcdonald/Code/vn2/vn2/models/results
 
 quantiles: [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
-horizon: 2  # weeks (h=1, h=2)
+horizon: 3  # weeks (h=1, h=2, h=3 for L=3)
 holdout_weeks: 12
 rolling_origins: 12
 
@@ -41,7 +41,7 @@ models:
     type: poisson
   
   zinb:
-    enabled: true
+    enabled: false
     type: negbin
   
   lightgbm_quantile:
@@ -65,7 +65,7 @@ models:
     n_bootstrap: 1000
   
   slurp_surd:
-    enabled: true
+    enabled: false
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: false
@@ -78,14 +78,14 @@ models:
     stockout_aware: true
   
   slurp_surd_stockout_aware:
-    enabled: true
+    enabled: false
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: true
     use_surd: true
   
   linear_quantile:
-    enabled: true
+    enabled: false
     alpha: 1.0
     solver: highs
   
@@ -110,7 +110,7 @@ models:
     min_data_in_leaf: 20
   
   qrf:
-    enabled: true
+    enabled: false
     n_estimators: 100
     max_depth: 10
     min_samples_leaf: 5

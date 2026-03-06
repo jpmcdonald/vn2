@@ -2,7 +2,7 @@
 
 This document tracks data files required for backtesting and model training, their purpose, and current status in the repo.
 
-**Last validated**: See plan implementation date. Re-run validation when adding Week 1–8 Sales or leaderboard files.
+**Last validated**: See plan implementation date. Re-run validation when adding Week 1–8 Sales or leaderboard files. When Week 1–8 Sales CSVs are present, run `build_demand_long.py` and use `full_L3_simulation.py --max-weeks 8` and `run_rolling_benchmark_8week.py` for full 8-week backtest.
 
 ---
 

@@ -23,6 +23,8 @@ dependencies = [
     "rich>=13.7,<14",
     "mlflow>=2.14,<3",
     "plotly>=5.22,<6",
+    "tqdm>=4.67.3",
+    "lightgbm>=4.6.0",
 ]
 
 [project.optional-dependencies]

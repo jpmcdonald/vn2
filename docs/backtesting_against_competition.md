@@ -86,6 +86,12 @@ python scripts/validate_checkpoints.py \
     --expected-folds 12
 ```
 
+#### No-cheating rules (8-week backtest)
+
+- **Per decision**: At end of week t (order t+1), use only state at that time and forecasts from **fold t** (fold_0 for Order 1, …, fold_5 for Order 6). [full_L3_simulation.py](../scripts/full_L3_simulation.py) uses `fold_idx=0` for Order 1 and `fold_idx=week` for Orders 2–6; missing folds fall back to fold_0.
+- **Benchmark**: [run_rolling_benchmark_8week.py](../scripts/run_rolling_benchmark_8week.py) uses only sales through week t for the order placed at end of week t.
+- **Top 20%**: Cost threshold from [parse_cumulative_leaderboard](../src/vn2/competition/leaderboard_parser.py) and `top_20_percent_threshold()`; target is 8-week cost ≤ that threshold.
+
 #### Key Considerations
 
 - **No data leakage**: Only use data available at decision time
@@ -120,7 +126,7 @@ python scripts/full_L3_simulation.py \
     --co 0.2
 ```
 
-When all 8 weeks of Sales files are present, use `--weeks 1 2 3 4 5 6 7 8` for a full 8-week backtest.
+When all 8 weeks of Sales files are present, run with `--max-weeks 8` for a full 8-week backtest. Use **correct fold indexing** (no leakage): Order 1 uses fold_0, Order 2 uses fold_1, …, Order 6 uses fold_5. See [scripts/full_L3_simulation.py](../scripts/full_L3_simulation.py). Compare to the **rolling benchmark** (same actuals, no leakage): `python scripts/run_rolling_benchmark_8week.py`. Compare both to **top-20%** threshold: `python scripts/compare_8week_results.py --our-cost <cost> --benchmark-cost <cost>`.
 
 #### Simulation Steps
 

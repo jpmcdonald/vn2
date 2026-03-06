@@ -189,10 +189,11 @@ class ForecastPipeline:
                 }
             
             # Predict
-            quantiles_df = model.predict_quantiles(steps=2, X_future=X_test)
+            h = self.config.get('horizon', 3)
+            quantiles_df = model.predict_quantiles(steps=h, X_future=X_test)
             
             # Evaluate
-            y_test_vals = y_test.values if len(y_test) == 2 else np.pad(y_test.values, (0, 2 - len(y_test)), constant_values=0)
+            y_test_vals = y_test.values if len(y_test) == h else np.pad(y_test.values, (0, max(0, h - len(y_test))), constant_values=0)
             metrics = evaluate_forecast(y_test_vals, quantiles_df, include_cost=False)
             
             # Save checkpoint

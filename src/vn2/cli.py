@@ -261,6 +261,8 @@ def cmd_impute_stockouts(args):
             surd_transforms = surd_transforms.set_index(['Store', 'Product'])
     
     df = pd.read_parquet(demand_path)
+    if 'sales' not in df.columns and 'demand' in df.columns:
+        df['sales'] = df['demand']
     
     # Get quantile levels from config
     q_levels = np.array(cfg.get('sip', {}).get('quantiles', 

@@ -39,7 +39,8 @@ def trapz_integral_over_quantiles(
             p2 = np.insert(p2, 0, p0)
             v2 = np.insert(v2, 0, v0)
     
-    return float(np.trapz(v2, p2))
+    _trapz = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
+    return float(_trapz(v2, p2))
 
 
 def expected_tail(

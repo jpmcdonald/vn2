@@ -13,6 +13,7 @@ This differs from the previous backtest which used actual historical state files
 """
 
 import argparse
+import json
 import pickle
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -64,6 +65,9 @@ def load_sales(sales_dir: Path, week: int) -> Dict[Tuple[int, int], int]:
         3: ("Week 3 - 2024-04-29 - Sales.csv", "2024-04-29"),
         4: ("Week 4 - 2024-05-06 - Sales.csv", "2024-05-06"),
         5: ("Week 5 - 2024-05-13 - Sales.csv", "2024-05-13"),
+        6: ("Week 6 - 2024-05-20 - Sales.csv", "2024-05-20"),
+        7: ("Week 7 - 2024-05-27 - Sales.csv", "2024-05-27"),
+        8: ("Week 8 - 2024-06-03 - Sales.csv", "2024-06-03"),
     }
     
     if week not in week_info:
@@ -94,8 +98,10 @@ def load_selector_map(path: Path) -> Dict[Tuple[int, int], str]:
 
 
 def load_quantiles(store: int, product: int, model: str, checkpoints_dir: Path, fold_idx: int = 0) -> Optional[pd.DataFrame]:
-    """Load quantile forecasts."""
+    """Load quantile forecasts. Uses fold_idx for decision week (no leakage). Fallback to fold_0 if fold_idx missing."""
     path = checkpoints_dir / model / f"{store}_{product}" / f"fold_{fold_idx}.pkl"
+    if not path.exists() and fold_idx != 0:
+        path = checkpoints_dir / model / f"{store}_{product}" / "fold_0.pkl"
     if not path.exists():
         return None
     with open(path, 'rb') as f:
@@ -143,8 +149,10 @@ def generate_order_L3(
 def simulate_week(
     states: Dict[Tuple[int, int], SKUSimState],
     sales: Dict[Tuple[int, int], int],
-    pending_orders: Dict[Tuple[int, int], int],  # Orders that will be placed at END of this week
-    costs: Costs
+    pending_orders: Dict[Tuple[int, int], int],
+    costs: Costs,
+    sku_records: Optional[List[dict]] = None,
+    week_num: int = 0,
 ) -> Tuple[float, float, int]:
     """
     Simulate one week of inventory dynamics.
@@ -160,23 +168,21 @@ def simulate_week(
     - in_transit[2]: arriving in 3 weeks (placed end of week W = now)
     
     Returns: (holding_cost, shortage_cost, stockouts)
+    If sku_records is provided, appends per-SKU detail rows for diagnostics.
     """
     total_holding = 0.0
     total_shortage = 0.0
     stockouts = 0
     
     for key, state in states.items():
-        # 1. Arrivals at START of this week
         arriving = state.in_transit[0]
         available = state.on_hand + arriving
         
-        # 2. Sales during week
         demand = sales.get(key, 0)
         sold = min(available, demand)
         shortage = max(0, demand - available)
         leftover = max(0, available - demand)
         
-        # 3. Costs (holding on leftover at end of week)
         h_cost = costs.holding * leftover
         s_cost = costs.shortage * shortage
         total_holding += h_cost
@@ -184,14 +190,33 @@ def simulate_week(
         if shortage > 0:
             stockouts += 1
         
-        # 4. Update on_hand to end-of-week position
-        state.on_hand = leftover
+        if sku_records is not None:
+            sku_records.append({
+                'week': week_num,
+                'Store': key[0],
+                'Product': key[1],
+                'on_hand_start': state.on_hand,
+                'arriving': arriving,
+                'available': available,
+                'demand': demand,
+                'sold': sold,
+                'shortage': shortage,
+                'leftover': leftover,
+                'holding_cost': h_cost,
+                'shortage_cost': s_cost,
+                'stockout': int(shortage > 0),
+            })
         
-        # 5. Shift in-transit (new orders are added separately after this function)
-        # in_transit[0] was just received, shift everything left
+        state.on_hand = leftover
         state.in_transit = [state.in_transit[1], state.in_transit[2], 0]
     
     return total_holding, total_shortage, stockouts
+
+
+def costs_for_service_level(co: float, sl: float) -> Costs:
+    """Compute Costs that achieve a given newsvendor service level sl = cu/(cu+co)."""
+    adjusted_cu = co * sl / (1.0 - sl)
+    return Costs(holding=co, shortage=adjusted_cu)
 
 
 def run_full_simulation(
@@ -199,10 +224,25 @@ def run_full_simulation(
     sales_dir: Path,
     checkpoints_dir: Path,
     selector_map_path: Path,
-    max_weeks: int = 5,
-    costs: Costs = Costs()
+    max_weeks: int = 8,
+    costs: Costs = Costs(),
+    default_model: str = 'seasonal_naive',
+    sl_schedule: Optional[Dict[int, float]] = None,
+    eval_costs: Optional[Costs] = None,
+    static_folds: bool = False,
 ) -> pd.DataFrame:
-    """Run full simulation with rolling state propagation."""
+    """Run full simulation with rolling state propagation.
+
+    Args:
+        sl_schedule: optional mapping from order number (1-6) to service level.
+                     When provided, overrides costs for that order's placement.
+        eval_costs: costs used for tallying realized holding/shortage.
+                    Defaults to true competition costs (co=0.2, cu=1.0)
+                    regardless of ordering service level.
+        static_folds: if True, always use fold_0 for all orders (train-once strategy).
+    """
+    if eval_costs is None:
+        eval_costs = Costs(holding=0.2, shortage=1.0)
     
     # Load initial state
     console.print("Loading initial state...")
@@ -217,22 +257,30 @@ def run_full_simulation(
                                  0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99])
     
     results = []
+    sku_records: List[dict] = []
     all_orders = {}  # Track all orders placed
+
+    def _order_costs(order_num: int) -> Costs:
+        """Return costs for a specific order, applying schedule if present."""
+        if sl_schedule and order_num in sl_schedule:
+            return costs_for_service_level(costs.holding, sl_schedule[order_num])
+        return costs
     
-    # Place Order 1 at End of Week 0 (before Week 1 happens)
+    # Place Order 1 at End of Week 0 (before Week 1 happens). Use fold_0 (no leakage).
     # Order 1 arrives at Start of Week 3
     console.print("\n[bold]End of Week 0: Place Order 1[/bold]")
+    order1_costs = _order_costs(1)
+    sl_display = f" (SL={sl_schedule[1]:.2f})" if sl_schedule and 1 in sl_schedule else ""
     order1 = {}
     for key, state in states.items():
-        model = model_for_sku.get(key, 'zinb')
-        qdf = load_quantiles(state.store, state.product, model, checkpoints_dir)
-        order = generate_order_L3(state, qdf, costs, quantile_levels)
+        model = model_for_sku.get(key, default_model)
+        qdf = load_quantiles(state.store, state.product, model, checkpoints_dir, fold_idx=0)
+        order = generate_order_L3(state, qdf, order1_costs, quantile_levels)
         order1[key] = order
-        # Add to in_transit[2] = arrives in 3 weeks = Week 3
         state.in_transit[2] = order
     
     all_orders[1] = sum(order1.values())
-    console.print(f"  Order 1: {all_orders[1]} units → arrives Week 3")
+    console.print(f"  Order 1: {all_orders[1]} units → arrives Week 3{sl_display}")
     
     for week in range(1, max_weeks + 1):
         console.print(f"\n[bold]Week {week}[/bold]")
@@ -242,28 +290,27 @@ def run_full_simulation(
         total_demand = sum(sales.values())
         console.print(f"  Demand: {total_demand} units")
         
-        # What's arriving this week?
         total_arriving = sum(s.in_transit[0] for s in states.values())
         console.print(f"  Arriving: {total_arriving} units")
         
-        # Simulate week - pass empty dict for new orders since we place them AFTER
-        holding, shortage, stockouts = simulate_week(states, sales, {}, costs)
+        holding, shortage, stockouts = simulate_week(
+            states, sales, {}, eval_costs, sku_records=sku_records, week_num=week)
         total = holding + shortage
         
         console.print(f"  Costs: Holding=€{holding:.2f}, Shortage=€{shortage:.2f}, Total=€{total:.2f}")
         
-        # Place next order at END of this week (Order N+1 where we're processing week N)
-        # This order arrives at week + 3
         next_order_num = week + 1
-        if next_order_num <= 6:  # Only 6 orders in competition
-            console.print(f"  Placing Order {next_order_num} (arrives Week {week + 3})...")
+        if next_order_num <= 6:
+            order_costs = _order_costs(next_order_num)
+            sl_display = f" SL={sl_schedule[next_order_num]:.2f}" if sl_schedule and next_order_num in sl_schedule else ""
+            console.print(f"  Placing Order {next_order_num} (arrives Week {week + 3}){sl_display}...")
             next_order = {}
             for key, state in states.items():
-                model = model_for_sku.get(key, 'zinb')
-                qdf = load_quantiles(state.store, state.product, model, checkpoints_dir)
-                order = generate_order_L3(state, qdf, costs, quantile_levels)
+                model = model_for_sku.get(key, default_model)
+                fold = 0 if static_folds else week
+                qdf = load_quantiles(state.store, state.product, model, checkpoints_dir, fold_idx=fold)
+                order = generate_order_L3(state, qdf, order_costs, quantile_levels)
                 next_order[key] = order
-                # Add to pipeline - will arrive in 3 weeks
                 state.in_transit[2] = order
             
             all_orders[next_order_num] = sum(next_order.values())
@@ -279,7 +326,7 @@ def run_full_simulation(
             'stockouts': stockouts
         })
     
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), pd.DataFrame(sku_records)
 
 
 def main():
@@ -291,23 +338,52 @@ def main():
     parser.add_argument('--selector-map', type=Path,
                         default=Path('models/results/selector_map_seq12_v1.parquet'))
     parser.add_argument('--output-dir', type=Path, default=Path('reports/backtest_L3'))
-    parser.add_argument('--max-weeks', type=int, default=5)
+    parser.add_argument('--max-weeks', type=int, default=8, help='Simulate weeks 1..max_weeks (8 for full competition)')
     parser.add_argument('--cu', type=float, default=1.0)
     parser.add_argument('--co', type=float, default=0.2)
+    parser.add_argument('--default-model', type=str, default='seasonal_naive',
+                        help='Fallback model when selector map is missing or incomplete')
+    parser.add_argument('--service-level', type=float, default=None,
+                        help='Flat service level (0-1) overriding cu/co for all orders. '
+                             'E.g. 0.70 means target the 70th percentile.')
+    parser.add_argument('--service-level-schedule', type=str, default=None,
+                        help='Per-order service level as JSON, e.g. '
+                             '\'{"1":0.60,"2":0.65,"3":0.70,"4":0.75,"5":0.80,"6":0.83}\'')
+    parser.add_argument('--static-folds', action='store_true',
+                        help='Always use fold_0 for all orders (train-once strategy)')
     
     args = parser.parse_args()
     
+    eval_costs = Costs(holding=args.co, shortage=args.cu)
     costs = Costs(holding=args.co, shortage=args.cu)
+
+    # Build service-level schedule
+    sl_schedule: Optional[Dict[int, float]] = None
+    if args.service_level_schedule:
+        raw = json.loads(args.service_level_schedule)
+        sl_schedule = {int(k): float(v) for k, v in raw.items()}
+        console.print(f"Service-level schedule: { {k: f'{v:.2f}' for k, v in sorted(sl_schedule.items())} }")
+    elif args.service_level is not None:
+        sl_schedule = {order: args.service_level for order in range(1, 7)}
+        order_costs = costs_for_service_level(args.co, args.service_level)
+        console.print(f"Flat service level: {args.service_level:.3f}  (effective cu={order_costs.shortage:.4f})")
     
+    fold_label = "static (fold_0 only)" if args.static_folds else "sequential (fold per order)"
     console.print("[bold cyan]Full L=3 Simulation with Rolling State Propagation[/bold cyan]\n")
+    console.print(f"  Eval costs: cu={eval_costs.shortage}, co={eval_costs.holding}")
+    console.print(f"  Fold strategy: {fold_label}")
     
-    results = run_full_simulation(
+    results, sku_detail = run_full_simulation(
         args.initial_state,
         args.sales_dir,
         args.checkpoints_dir,
         args.selector_map,
         args.max_weeks,
-        costs
+        costs,
+        default_model=args.default_model,
+        sl_schedule=sl_schedule,
+        eval_costs=eval_costs,
+        static_folds=args.static_folds,
     )
     
     # Summary
@@ -338,8 +414,10 @@ def main():
     # Save results
     args.output_dir.mkdir(parents=True, exist_ok=True)
     results.to_csv(args.output_dir / 'full_simulation_results.csv', index=False)
+    if not sku_detail.empty:
+        sku_detail.to_parquet(args.output_dir / 'sku_detail.parquet', index=False)
     
-    console.print(f"\n[green]Results saved to {args.output_dir / 'full_simulation_results.csv'}[/green]")
+    console.print(f"\n[green]Results saved to {args.output_dir}[/green]")
 
 
 if __name__ == '__main__':
