@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Compute per-model bias, calibration, and demand-segment analysis
-against competition-week actuals (Weeks 1-8).
+Compute per-model bias, calibration, demand-segment analysis,
+Wasserstein distance, and CRPS against competition-week actuals (Weeks 1-8).
 
 For each model and each competition week:
   - Load fold_{week-1} checkpoint (h=1 forecast vs that week's actual)
-  - Also check h=2 and h=3 where applicable
   - Compare quantile forecasts against realized demand
+  - Compute distributional quality (Wasserstein, CRPS)
 
 Outputs:
-  - reports/bias/bias_summary.csv           (per-model aggregate bias)
+  - reports/bias/bias_summary.csv           (per-model aggregate bias + Wasserstein/CRPS)
   - reports/bias/calibration_table.csv      (empirical coverage at each quantile)
-  - reports/bias/segment_breakdown.csv      (bias by demand segment)
+  - reports/bias/segment_breakdown.csv      (bias by demand segment + Wasserstein/CRPS)
   - reports/bias/per_sku_week_detail.parquet (full detail for downstream use)
+  - reports/bias/worst_skus.csv             (top 50 worst SKUs per model by composite score)
 """
 
 import pickle
@@ -23,9 +24,14 @@ import pandas as pd
 from rich.console import Console
 from rich.table import Table
 
+from vn2.analyze.sip_opt import quantiles_to_pmf
+from vn2.forecast.evaluation import crps_score, pinball_loss
+
 console = Console()
 
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware']
+CRITICAL_FRACTILE = 0.833
+
+MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
 QUANTILE_LEVELS = [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 CHECKPOINTS_DIR = Path('models/checkpoints_h3')
 SALES_DIR = Path('data/raw')
@@ -111,6 +117,31 @@ def main():
                 median_pred = row[0.50] if 0.50 in row.index else np.nan
                 mean_pred = row.mean()
 
+                q_levels_arr = np.array(QUANTILE_LEVELS)
+                q_values_arr = np.array([row[q] for q in QUANTILE_LEVELS if q in row.index])
+                q_levels_used = np.array([q for q in QUANTILE_LEVELS if q in row.index])
+
+                # Wasserstein W1: distance between forecast PMF and point mass at actual
+                try:
+                    pmf = quantiles_to_pmf(q_values_arr, q_levels_used, grain=500)
+                    support = np.arange(len(pmf))
+                    wass = float(np.sum(pmf * np.abs(support - actual)))
+                except Exception:
+                    wass = np.nan
+
+                # CRPS
+                try:
+                    crps_val = float(crps_score(actual, q_values_arr, q_levels_used))
+                except Exception:
+                    crps_val = np.nan
+
+                # Pinball at the critical fractile (0.833) via interpolation
+                try:
+                    pred_at_cf = float(np.interp(CRITICAL_FRACTILE, q_levels_used, q_values_arr))
+                    pinball_cf = float(pinball_loss(actual, pred_at_cf, CRITICAL_FRACTILE))
+                except Exception:
+                    pinball_cf = np.nan
+
                 rec = {
                     'model': model,
                     'week': week,
@@ -123,6 +154,10 @@ def main():
                     'bias_mean': mean_pred - actual,
                     'abs_error': abs(median_pred - actual),
                     'segment': demand_segment(actual),
+                    'wasserstein': wass,
+                    'crps': crps_val,
+                    'pinball_cf': pinball_cf,
+                    'composite': pinball_cf * wass if not (np.isnan(pinball_cf) or np.isnan(wass)) else np.nan,
                 }
 
                 # Coverage at each quantile
@@ -146,6 +181,12 @@ def main():
         bias_mean=('bias_mean', 'mean'),
         mae=('abs_error', 'mean'),
         rmse=('abs_error', lambda x: np.sqrt((x**2).mean())),
+        wasserstein_mean=('wasserstein', 'mean'),
+        wasserstein_median=('wasserstein', 'median'),
+        crps_mean=('crps', 'mean'),
+        crps_median=('crps', 'median'),
+        pinball_cf_mean=('pinball_cf', 'mean'),
+        composite_mean=('composite', 'mean'),
     ).round(4)
     bias_summary.to_csv(OUTPUT_DIR / 'bias_summary.csv')
     console.print("\n[bold green]Bias Summary[/bold green]")
@@ -181,6 +222,8 @@ def main():
         mean_actual=('actual', 'mean'),
         bias_median=('bias_median', 'mean'),
         mae=('abs_error', 'mean'),
+        wasserstein_mean=('wasserstein', 'mean'),
+        crps_mean=('crps', 'mean'),
     ).round(4)
     seg.to_csv(OUTPUT_DIR / 'segment_breakdown.csv')
     console.print("\n[bold green]Segment Breakdown[/bold green]")
@@ -194,9 +237,54 @@ def main():
     weekly = df.groupby(['model', 'week']).agg(
         bias_median=('bias_median', 'mean'),
         mae=('abs_error', 'mean'),
+        wasserstein_mean=('wasserstein', 'mean'),
+        crps_mean=('crps', 'mean'),
     ).round(4)
     console.print("\n[bold green]Weekly Bias Trend[/bold green]")
     console.print(weekly.to_string())
+
+    # --- Worst SKUs by composite score (pinball_cf * wasserstein) ---
+    worst_rows = []
+    for model in MODELS:
+        mdf = df[df['model'] == model].dropna(subset=['composite'])
+        if mdf.empty:
+            continue
+        sku_composite = mdf.groupby(['Store', 'Product']).agg(
+            composite_mean=('composite', 'mean'),
+            wasserstein_mean=('wasserstein', 'mean'),
+            crps_mean=('crps', 'mean'),
+            pinball_cf_mean=('pinball_cf', 'mean'),
+            mae=('abs_error', 'mean'),
+            mean_actual=('actual', 'mean'),
+            n_weeks=('actual', 'count'),
+        ).sort_values('composite_mean', ascending=False).head(50)
+        sku_composite = sku_composite.reset_index()
+        sku_composite.insert(0, 'model', model)
+        worst_rows.append(sku_composite)
+
+    if worst_rows:
+        worst_df = pd.concat(worst_rows, ignore_index=True).round(4)
+        worst_df.to_csv(OUTPUT_DIR / 'worst_skus.csv', index=False)
+        console.print(f"\n[bold green]Worst SKUs[/bold green] saved to {OUTPUT_DIR / 'worst_skus.csv'}")
+        for model in MODELS:
+            m_worst = worst_df[worst_df['model'] == model].head(5)
+            if not m_worst.empty:
+                console.print(f"\n  [bold]{model}[/bold] top-5 worst:")
+                console.print(m_worst[['Store', 'Product', 'composite_mean', 'wasserstein_mean', 'crps_mean']].to_string(index=False))
+
+    # --- Wasserstein/CRPS summary (separate file for downstream scripts) ---
+    wc_summary = df.groupby('model').agg(
+        wasserstein_mean=('wasserstein', 'mean'),
+        wasserstein_p50=('wasserstein', 'median'),
+        wasserstein_p90=('wasserstein', lambda x: x.quantile(0.9)),
+        crps_mean=('crps', 'mean'),
+        crps_p50=('crps', 'median'),
+        crps_p90=('crps', lambda x: x.quantile(0.9)),
+        composite_mean=('composite', 'mean'),
+    ).round(4)
+    wc_summary.to_csv(OUTPUT_DIR / 'wasserstein_crps_summary.csv')
+    console.print(f"\n[bold green]Wasserstein/CRPS Summary[/bold green]")
+    console.print(wc_summary.to_string())
 
 
 if __name__ == '__main__':

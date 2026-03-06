@@ -97,6 +97,17 @@ def load_selector_map(path: Path) -> Dict[Tuple[int, int], str]:
     return {(int(r.store), int(r.product)): r.model_name for r in df.itertuples(index=False)}
 
 
+def load_weekly_selector_map(path: Path) -> Dict[Tuple[int, int, int], str]:
+    """Load per-SKU-week selector map. Keyed by (store, product, week)."""
+    if not path.exists():
+        return {}
+    df = pd.read_parquet(path)
+    return {
+        (int(r.store), int(r.product), int(r.week)): r.model_name
+        for r in df.itertuples(index=False)
+    }
+
+
 def load_quantiles(store: int, product: int, model: str, checkpoints_dir: Path, fold_idx: int = 0) -> Optional[pd.DataFrame]:
     """Load quantile forecasts. Uses fold_idx for decision week (no leakage). Fallback to fold_0 if fold_idx missing."""
     path = checkpoints_dir / model / f"{store}_{product}" / f"fold_{fold_idx}.pkl"
@@ -230,6 +241,7 @@ def run_full_simulation(
     sl_schedule: Optional[Dict[int, float]] = None,
     eval_costs: Optional[Costs] = None,
     static_folds: bool = False,
+    weekly_selector_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """Run full simulation with rolling state propagation.
 
@@ -240,6 +252,8 @@ def run_full_simulation(
                     Defaults to true competition costs (co=0.2, cu=1.0)
                     regardless of ordering service level.
         static_folds: if True, always use fold_0 for all orders (train-once strategy).
+        weekly_selector_path: optional parquet with (store, product, week, model_name)
+                              for per-SKU-week model selection.
     """
     if eval_costs is None:
         eval_costs = Costs(holding=0.2, shortage=1.0)
@@ -249,9 +263,14 @@ def run_full_simulation(
     states = load_initial_state(initial_state_path)
     console.print(f"  {len(states)} SKUs")
     
-    # Load selector map
+    # Load selector maps
     model_for_sku = load_selector_map(selector_map_path)
-    console.print(f"  {len(model_for_sku)} model mappings")
+    console.print(f"  {len(model_for_sku)} static model mappings")
+    
+    weekly_selector: Dict[Tuple[int, int, int], str] = {}
+    if weekly_selector_path:
+        weekly_selector = load_weekly_selector_map(weekly_selector_path)
+        console.print(f"  {len(weekly_selector)} weekly model mappings")
     
     quantile_levels = np.array([0.01, 0.05, 0.10, 0.20, 0.30, 0.40,
                                  0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99])
@@ -271,9 +290,17 @@ def run_full_simulation(
     console.print("\n[bold]End of Week 0: Place Order 1[/bold]")
     order1_costs = _order_costs(1)
     sl_display = f" (SL={sl_schedule[1]:.2f})" if sl_schedule and 1 in sl_schedule else ""
+    def _pick_model(key, order_num):
+        """Pick model: weekly selector > static selector > default."""
+        if weekly_selector:
+            wk = weekly_selector.get((key[0], key[1], order_num))
+            if wk:
+                return wk
+        return model_for_sku.get(key, default_model)
+
     order1 = {}
     for key, state in states.items():
-        model = model_for_sku.get(key, default_model)
+        model = _pick_model(key, 1)
         qdf = load_quantiles(state.store, state.product, model, checkpoints_dir, fold_idx=0)
         order = generate_order_L3(state, qdf, order1_costs, quantile_levels)
         order1[key] = order
@@ -306,7 +333,7 @@ def run_full_simulation(
             console.print(f"  Placing Order {next_order_num} (arrives Week {week + 3}){sl_display}...")
             next_order = {}
             for key, state in states.items():
-                model = model_for_sku.get(key, default_model)
+                model = _pick_model(key, next_order_num)
                 fold = 0 if static_folds else week
                 qdf = load_quantiles(state.store, state.product, model, checkpoints_dir, fold_idx=fold)
                 order = generate_order_L3(state, qdf, order_costs, quantile_levels)
@@ -351,6 +378,8 @@ def main():
                              '\'{"1":0.60,"2":0.65,"3":0.70,"4":0.75,"5":0.80,"6":0.83}\'')
     parser.add_argument('--static-folds', action='store_true',
                         help='Always use fold_0 for all orders (train-once strategy)')
+    parser.add_argument('--weekly-selector-map', type=Path, default=None,
+                        help='Per-SKU-week model selector parquet (store, product, week, model_name)')
     
     args = parser.parse_args()
     
@@ -384,6 +413,7 @@ def main():
         sl_schedule=sl_schedule,
         eval_costs=eval_costs,
         static_folds=args.static_folds,
+        weekly_selector_path=args.weekly_selector_map,
     )
     
     # Summary

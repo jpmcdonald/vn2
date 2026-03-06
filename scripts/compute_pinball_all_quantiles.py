@@ -25,9 +25,11 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+from vn2.forecast.evaluation import crps_score
+
 console = Console()
 
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware']
+MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
 MODEL_QUANTILES = [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 SL_FRACTILES = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.833]
 ALL_FRACTILES = sorted(set(MODEL_QUANTILES + SL_FRACTILES))
@@ -110,6 +112,9 @@ def main():
     unweighted = {m: {q: [] for q in ALL_FRACTILES} for m in MODELS}
     cost_wt = {m: {q: [] for q in ALL_FRACTILES} for m in MODELS}
     vol_wt = {m: {q: [] for q in ALL_FRACTILES} for m in MODELS}
+    crps_values = {m: [] for m in MODELS}
+
+    q_levels_arr = np.array(MODEL_QUANTILES)
 
     for model in MODELS:
         console.print(f"[bold]{model}[/bold]")
@@ -142,7 +147,16 @@ def main():
                     cost_wt[model][q].append(cpb)
                     vol_wt[model][q].append(pb * vol_weight)
 
-        console.print(f"  Done ({len(unweighted[model][0.50])} obs)")
+                # CRPS from the model's native quantile grid
+                q_vals = np.array([row[q] for q in MODEL_QUANTILES if q in row.index])
+                q_lvls = np.array([q for q in MODEL_QUANTILES if q in row.index])
+                if len(q_vals) > 0:
+                    try:
+                        crps_values[model].append(float(crps_score(actual, q_vals, q_lvls)))
+                    except Exception:
+                        pass
+
+        console.print(f"  Done ({len(unweighted[model][0.50])} obs, {len(crps_values[model])} CRPS)")
 
     # Build summary tables
     def build_table(data_dict: dict) -> pd.DataFrame:
@@ -171,6 +185,24 @@ def main():
 
     console.print("\n[bold green]Volume-Weighted Pinball Loss (mean)[/bold green]")
     console.print(vw_df.to_string(index=False))
+
+    # CRPS summary
+    crps_rows = []
+    for model in MODELS:
+        vals = crps_values[model]
+        if vals:
+            crps_rows.append({
+                'model': model,
+                'crps_mean': round(np.mean(vals), 4),
+                'crps_median': round(np.median(vals), 4),
+                'crps_p90': round(np.percentile(vals, 90), 4),
+                'crps_std': round(np.std(vals), 4),
+                'n': len(vals),
+            })
+    crps_df = pd.DataFrame(crps_rows)
+    crps_df.to_csv(OUTPUT_DIR / 'crps_summary.csv', index=False)
+    console.print("\n[bold green]CRPS Summary[/bold green]")
+    console.print(crps_df.to_string(index=False))
 
     console.print(f"\nResults saved to {OUTPUT_DIR}/")
 

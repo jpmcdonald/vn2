@@ -44,6 +44,9 @@ def load_data():
         'f1_weekly': 'reports/f1/stockout_f1_weekly.csv',
         'strategy': 'reports/train_strategy/strategy_comparison.csv',
         'segment': 'reports/bias/segment_breakdown.csv',
+        'wass_crps': 'reports/bias/wasserstein_crps_summary.csv',
+        'crps_pinball': 'reports/pinball/crps_summary.csv',
+        'worst_skus': 'reports/bias/worst_skus.csv',
     }
     for key, path in files.items():
         p = Path(path)
@@ -252,6 +255,104 @@ def h3_surd_effect(data: dict) -> str:
     return "\n".join(lines)
 
 
+def distributional_quality(data: dict) -> str:
+    """Distributional quality metrics: Wasserstein, CRPS, worst SKUs."""
+    lines = []
+    lines.append("## Distributional Quality (Wasserstein Distance and CRPS)")
+    lines.append("")
+    lines.append("These metrics measure how well each model's full predictive distribution")
+    lines.append("matches realized demand, beyond point accuracy or single-quantile calibration.")
+    lines.append("")
+    lines.append("- **CRPS** (Continuous Ranked Probability Score): integrated pinball loss across")
+    lines.append("  all quantiles. Lower is better. A natural single-number summary of distributional fit.")
+    lines.append("- **Wasserstein W1**: earth-mover's distance between the forecast PMF and the")
+    lines.append("  point mass at actual demand. Measures how far probability mass must be moved")
+    lines.append("  to match reality. Lower is better.")
+    lines.append("- **Composite score**: pinball(0.833) x Wasserstein. Identifies SKUs where")
+    lines.append("  poor distributional quality at the critical fractile causes the most damage.")
+    lines.append("")
+
+    wc = data['wass_crps']
+    crps_pb = data['crps_pinball']
+
+    if not wc.empty:
+        lines.append("### Per-model summary (from bias analysis, all 8 weeks)")
+        lines.append("")
+        lines.append("| Model | CRPS (mean) | CRPS (p50) | CRPS (p90) | Wasserstein (mean) | Wasserstein (p50) | Wasserstein (p90) | Composite |")
+        lines.append("|-------|------------:|-----------:|-----------:|-------------------:|------------------:|------------------:|----------:|")
+        for _, r in wc.iterrows():
+            model = r.get('model', r.name if isinstance(r.name, str) else '')
+            lines.append(
+                f"| {model} "
+                f"| {r.get('crps_mean', 'N/A'):.4f} "
+                f"| {r.get('crps_p50', 'N/A'):.4f} "
+                f"| {r.get('crps_p90', 'N/A'):.4f} "
+                f"| {r.get('wasserstein_mean', 'N/A'):.4f} "
+                f"| {r.get('wasserstein_p50', 'N/A'):.4f} "
+                f"| {r.get('wasserstein_p90', 'N/A'):.4f} "
+                f"| {r.get('composite_mean', 'N/A'):.4f} |"
+            )
+        lines.append("")
+
+    if not crps_pb.empty:
+        lines.append("### CRPS from pinball script (cross-check)")
+        lines.append("")
+        lines.append("| Model | CRPS (mean) | CRPS (median) | CRPS (p90) | n |")
+        lines.append("|-------|------------:|--------------:|-----------:|--:|")
+        for _, r in crps_pb.iterrows():
+            lines.append(
+                f"| {r['model']} "
+                f"| {r['crps_mean']:.4f} "
+                f"| {r['crps_median']:.4f} "
+                f"| {r['crps_p90']:.4f} "
+                f"| {int(r['n'])} |"
+            )
+        lines.append("")
+
+    # Worst SKUs
+    worst = data['worst_skus']
+    if not worst.empty:
+        lines.append("### Worst-performing SKUs (top 10 per model by composite score)")
+        lines.append("")
+        lines.append("These SKUs are where targeted policy overrides (order-zero, model switching)")
+        lines.append("would have the most cost impact.")
+        lines.append("")
+        for model in worst['model'].unique():
+            mdf = worst[worst['model'] == model].head(10)
+            lines.append(f"**{model}:**")
+            lines.append("")
+            lines.append("| Store | Product | Composite | Wasserstein | CRPS | Pinball(CF) | MAE | Mean Demand |")
+            lines.append("|------:|--------:|----------:|------------:|-----:|------------:|----:|------------:|")
+            for _, r in mdf.iterrows():
+                lines.append(
+                    f"| {int(r['Store'])} | {int(r['Product'])} "
+                    f"| {r['composite_mean']:.2f} "
+                    f"| {r['wasserstein_mean']:.2f} "
+                    f"| {r['crps_mean']:.4f} "
+                    f"| {r['pinball_cf_mean']:.4f} "
+                    f"| {r['mae']:.2f} "
+                    f"| {r['mean_actual']:.1f} |"
+                )
+            lines.append("")
+
+    lines.append("### Interpretation")
+    lines.append("")
+    lines.append("CRPS and Wasserstein provide complementary views: CRPS penalizes miscalibration")
+    lines.append("across the full distribution, while Wasserstein focuses on the earth-mover")
+    lines.append("distance to the realized outcome. Models with low CRPS but high Wasserstein")
+    lines.append("have well-shaped distributions that are shifted away from actuals (bias problem).")
+    lines.append("Models with high CRPS but low Wasserstein have probability mass near the actual")
+    lines.append("but poorly calibrated tails (dispersion problem).")
+    lines.append("")
+    lines.append("The composite score (pinball(CF) x Wasserstein) directly targets the cost-relevant")
+    lines.append("failure mode: SKUs where the critical fractile prediction is both wrong AND the")
+    lines.append("distribution is far from reality. These are the SKUs where per-SKU model selection")
+    lines.append("or policy overrides would have the highest ROI.")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def h4_sequential_consistency(data: dict) -> str:
     """H4: Sequential Consistency -- 8-week ranking vs single-period metrics."""
     lines = []
@@ -266,6 +367,8 @@ def h4_sequential_consistency(data: dict) -> str:
     grid = data['grid']
     pinball = data['pinball']
     strategy = data['strategy']
+    wc = data['wass_crps']
+    crps_pb = data['crps_pinball']
 
     # 8-week cost ranking at SL=0.833
     if not grid.empty:
@@ -310,26 +413,74 @@ def h4_sequential_consistency(data: dict) -> str:
                 lines.append(f"{i}. **{r['model']}**: cost-weighted pinball={r[cw_col]:.4f}")
             lines.append("")
 
-    # Rank comparison
-    lines.append("### Rank comparison")
+    # CRPS ranking
+    if not crps_pb.empty:
+        lines.append("### CRPS ranking (distributional quality)")
+        lines.append("")
+        crps_sorted = crps_pb.sort_values('crps_mean')
+        for i, (_, r) in enumerate(crps_sorted.iterrows(), 1):
+            lines.append(f"{i}. **{r['model']}**: CRPS={r['crps_mean']:.4f}")
+        lines.append("")
+
+    # Wasserstein ranking
+    if not wc.empty:
+        lines.append("### Wasserstein distance ranking")
+        lines.append("")
+        wc_col = 'wasserstein_mean'
+        if wc_col in wc.columns:
+            wc_sorted = wc.sort_values(wc_col)
+            for i, (_, r) in enumerate(wc_sorted.iterrows(), 1):
+                model = r.get('model', r.name if isinstance(r.name, str) else '')
+                lines.append(f"{i}. **{model}**: W1={r[wc_col]:.4f}")
+            lines.append("")
+
+    # Comprehensive rank comparison table
+    lines.append("### Comprehensive rank comparison")
     lines.append("")
-    lines.append("| Metric | Rank 1 | Rank 2 | Rank 3 | Rank 4 |")
-    lines.append("|--------|--------|--------|--------|--------|")
+    rank_header = "| Metric | Rank 1 | Rank 2 | Rank 3 | Rank 4 |"
+    rank_sep = "|--------|--------|--------|--------|--------|"
+    lines.append(rank_header)
+    lines.append(rank_sep)
 
     if not grid.empty:
         sl83 = grid[grid['sl'] == 0.833].sort_values('total')
         models = sl83['model'].tolist()
-        lines.append(f"| 8-week cost (SL=0.833) | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
+        if len(models) >= 4:
+            lines.append(f"| 8-week cost (SL=0.833) | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
 
     if not pinball.empty and 'q_0.833' in pinball.columns:
         pb_sorted = pinball.sort_values('q_0.833')
         models = pb_sorted['model'].tolist()
-        lines.append(f"| Pinball @ q=0.833 | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
+        if len(models) >= 4:
+            lines.append(f"| Pinball @ q=0.833 | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
 
     if not pinball_cw.empty and 'q_0.833' in pinball_cw.columns:
         cw_sorted = pinball_cw.sort_values('q_0.833')
         models = cw_sorted['model'].tolist()
-        lines.append(f"| Cost-weighted pinball | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
+        if len(models) >= 4:
+            lines.append(f"| Cost-weighted pinball | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
+
+    if not crps_pb.empty:
+        crps_sorted = crps_pb.sort_values('crps_mean')
+        models = crps_sorted['model'].tolist()
+        if len(models) >= 4:
+            lines.append(f"| CRPS | {models[0]} | {models[1]} | {models[2]} | {models[3]} |")
+
+    if not wc.empty and 'wasserstein_mean' in wc.columns:
+        wc_sorted = wc.sort_values('wasserstein_mean')
+        models_w = []
+        for _, r in wc_sorted.iterrows():
+            models_w.append(r.get('model', r.name if isinstance(r.name, str) else ''))
+        if len(models_w) >= 4:
+            lines.append(f"| Wasserstein W1 | {models_w[0]} | {models_w[1]} | {models_w[2]} | {models_w[3]} |")
+
+    if not wc.empty and 'composite_mean' in wc.columns:
+        comp_sorted = wc.sort_values('composite_mean')
+        models_c = []
+        for _, r in comp_sorted.iterrows():
+            models_c.append(r.get('model', r.name if isinstance(r.name, str) else ''))
+        if len(models_c) >= 4:
+            lines.append(f"| Composite (PB*W1) | {models_c[0]} | {models_c[1]} | {models_c[2]} | {models_c[3]} |")
 
     lines.append("")
 
@@ -339,10 +490,6 @@ def h4_sequential_consistency(data: dict) -> str:
         lines.append("")
         lines.append("| Model | SL | Static | Sequential | Delta |")
         lines.append("|-------|---:|-------:|-----------:|------:|")
-        for _, r in strategy.iterrows():
-            if r['total'] is not None and r['sl'] == 0.833:
-                pass  # We need both static and sequential rows
-        # Pivot
         for model in ['slurp_bootstrap', 'slurp_stockout_aware', 'lightgbm_quantile']:
             for sl in [0.833]:
                 st = strategy[(strategy['model'] == model) & (strategy['sl'] == sl) & (strategy['strategy'] == 'static')]
@@ -356,11 +503,14 @@ def h4_sequential_consistency(data: dict) -> str:
 
     lines.append("### Interpretation")
     lines.append("")
-    lines.append("The rankings show a key inconsistency: **slurp_bootstrap** wins the 8-week")
-    lines.append("simulation at SL=0.833, but **slurp_stockout_aware** and **lightgbm_quantile**")
-    lines.append("may rank differently on single-period pinball metrics.")
-    lines.append("This supports H4: sequential dynamics (inventory carry-forward, lead-time")
-    lines.append("interactions) create path dependencies that single-period metrics miss.")
+    lines.append("The expanded rank comparison now includes CRPS, Wasserstein, and composite")
+    lines.append("scores alongside cost and pinball. Key observations:")
+    lines.append("")
+    lines.append("- If rankings are consistent across all metrics, the best single-period")
+    lines.append("  forecast is also the best sequential planner — H4 would be rejected.")
+    lines.append("- If rankings differ (e.g., a model wins on CRPS but loses on 8-week cost),")
+    lines.append("  H4 is supported: inventory dynamics create path dependencies that")
+    lines.append("  single-period metrics cannot capture.")
     lines.append("")
     lines.append("The training strategy comparison further supports H4: the static (train-once)")
     lines.append("approach often outperforms sequential refit for SLURP models at high SL,")
@@ -425,6 +575,16 @@ def build_executive_summary(data: dict) -> str:
     lines.append("   suggesting the marginal competition data adds noise rather than signal.")
     lines.append("")
 
+    # Distributional quality highlight
+    wc = data['wass_crps']
+    if not wc.empty and 'crps_mean' in wc.columns:
+        lines.append("6. **Distributional quality varies dramatically across models.** CRPS and")
+        lines.append("   Wasserstein distance reveal that forecast miscalibration — not just bias —")
+        lines.append("   drives cost differences. The composite score (pinball x Wasserstein)")
+        lines.append("   identifies specific SKUs where targeted model switching would have")
+        lines.append("   the highest cost impact.")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -438,6 +598,7 @@ def main():
         h1_jensen_gap(data),
         h2_stockout_awareness(data),
         h3_surd_effect(data),
+        distributional_quality(data),
         h4_sequential_consistency(data),
     ]
 

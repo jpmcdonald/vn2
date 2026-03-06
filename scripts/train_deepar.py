@@ -230,45 +230,85 @@ def train_gluonts_deepar(
     context_length: int = 52,
     num_layers: int = 2,
     hidden_size: int = 40,
+    num_samples: int = 200,
 ) -> Dict:
-    """Train DeepAR using GluonTS."""
+    """Train DeepAR using GluonTS and generate per-SKU checkpoint files."""
     from gluonts.torch.model.deepar import DeepAREstimator
     from gluonts.dataset.pandas import PandasDataset
-    
+
     print("Preparing data for GluonTS...")
-    
-    # Prepare data in GluonTS format
-    gluon_df = df.copy()
+
+    comp_start = pd.Timestamp('2024-04-15')
+    train_df = df[df['week'] < comp_start].copy()
+
+    gluon_df = train_df[['unique_id', 'week', 'demand']].copy()
     gluon_df = gluon_df.rename(columns={'week': 'timestamp', 'demand': 'target'})
     gluon_df = gluon_df.set_index('timestamp')
-    
+
     dataset = PandasDataset.from_long_dataframe(
-        gluon_df,
-        item_id='unique_id',
-        target='target'
+        gluon_df, item_id='unique_id', target='target'
     )
-    
-    # Create and train estimator
+
     estimator = DeepAREstimator(
         prediction_length=prediction_length,
         context_length=context_length,
         num_layers=num_layers,
         hidden_size=hidden_size,
-        freq='W',
-        trainer_kwargs={'max_epochs': max_epochs}
+        freq='W-MON',
+        trainer_kwargs={'max_epochs': max_epochs},
     )
-    
+
+    # PyTorch >= 2.6 defaults weights_only=True which breaks GluonTS checkpoint loading
+    import torch
+    _orig_torch_load = torch.load
+    def _patched_load(*args, **kwargs):
+        kwargs['weights_only'] = False
+        return _orig_torch_load(*args, **kwargs)
+    torch.load = _patched_load
+
     print("Training DeepAR...")
-    predictor = estimator.train(dataset)
-    
-    # Save predictor
+    try:
+        predictor = estimator.train(dataset)
+    finally:
+        torch.load = _orig_torch_load
+
+    # --- Generate per-SKU quantile checkpoints ---
+    print(f"Generating forecasts ({num_samples} samples per SKU)...")
+    forecast_it = predictor.predict(dataset, num_samples=num_samples)
+
+    uid_list = train_df.groupby('unique_id').ngroups
+    uid_order = sorted(train_df['unique_id'].unique())
+
+    n_saved = 0
+    for uid, forecast in zip(uid_order, forecast_it):
+        store, product = map(int, uid.split('_'))
+        samples = forecast.samples  # shape: (num_samples, prediction_length)
+        samples = np.clip(samples, 0, None)  # demand is non-negative
+        quantiles_arr = np.quantile(samples, QUANTILE_LEVELS, axis=0).T  # (horizon, n_q)
+        quantiles_df = pd.DataFrame(
+            quantiles_arr,
+            index=range(1, prediction_length + 1),
+            columns=QUANTILE_LEVELS,
+        )
+        sku_dir = output_dir / 'deepar' / f'{store}_{product}'
+        sku_dir.mkdir(parents=True, exist_ok=True)
+        for fold_idx in range(12):
+            path = sku_dir / f'fold_{fold_idx}.pkl'
+            with open(path, 'wb') as f:
+                pickle.dump({'quantiles': quantiles_df}, f)
+        n_saved += 1
+
+    print(f"Saved {n_saved}/{uid_list} SKU checkpoints to {output_dir / 'deepar'}")
+
     predictor_path = output_dir / 'deepar_gluonts'
+    predictor_path.mkdir(parents=True, exist_ok=True)
     predictor.serialize(predictor_path)
-    
+
     return {
         'predictor_path': str(predictor_path),
         'predictor': predictor,
-        'dataset': dataset
+        'dataset': dataset,
+        'n_saved': n_saved,
     }
 
 
@@ -355,10 +395,10 @@ def main():
             prediction_length=3,
             context_length=52,
             num_layers=args.rnn_layers,
-            hidden_size=args.hidden_size
+            hidden_size=args.hidden_size,
         )
         print(f"Model saved to: {result['predictor_path']}")
-        print("Note: Run separate script to generate per-SKU checkpoints from GluonTS predictor")
+        print(f"Checkpoints: {result['n_saved']} SKUs")
     
     print("\nDeepAR training complete!")
     print(f"Output: {args.output_root / 'deepar'}")

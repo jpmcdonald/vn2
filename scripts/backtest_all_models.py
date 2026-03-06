@@ -12,7 +12,7 @@ import re
 import csv
 from pathlib import Path
 
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware']
+MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
 SERVICE_LEVELS = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.833]
 
 OUTPUT_DIR = Path('reports/backtest_grid')

@@ -18,7 +18,7 @@ BASE_CMD = [sys.executable, "scripts/full_L3_simulation.py", "--max-weeks", "8"]
 PILOT_MODEL = 'slurp_bootstrap'
 PILOT_SL = 0.833
 
-ALL_MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware']
+ALL_MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
 COMPARE_SLS = [0.50, 0.70, 0.833]
 
 

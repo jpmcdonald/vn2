@@ -56,3 +56,7 @@ logs/
 *.swp
 *.swo
 
+# Training artifacts
+lightning_logs/
+models/checkpoints_h3/
+
