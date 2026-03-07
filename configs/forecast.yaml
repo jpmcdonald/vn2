@@ -1,8 +1,12 @@
 paths:
   processed: /Users/jpmcdonald/Code/vn2/vn2/data/processed
   models: /Users/jpmcdonald/Code/vn2/vn2/models/trained
-  checkpoints: /Users/jpmcdonald/Code/vn2/vn2/models/checkpoints
+  # Training writes here. Use same path as --checkpoints-dir when running backtest/simulation.
+  checkpoints: /Users/jpmcdonald/Code/vn2/vn2/models/checkpoints_h3
   results: /Users/jpmcdonald/Code/vn2/vn2/models/results
+  # Optional: surd_transforms filename under processed/ (default surd_transforms.parquet).
+  # Set to surd_transforms_corrected.parquet to use corrected CV transforms.
+  surd_transforms: surd_transforms.parquet
 
 quantiles: [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
 horizon: 3  # weeks (h=1, h=2, h=3 for L=3)
@@ -65,7 +69,7 @@ models:
     n_bootstrap: 1000
   
   slurp_surd:
-    enabled: false
+    enabled: true
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: false
@@ -78,7 +82,7 @@ models:
     stockout_aware: true
   
   slurp_surd_stockout_aware:
-    enabled: false
+    enabled: true
     n_neighbors: 50
     n_bootstrap: 1000
     stockout_aware: true

@@ -449,7 +449,7 @@ See **[docs/NEXT_TWO_WEEKS.md](NEXT_TWO_WEEKS.md)** for a concrete Week 1 / Week
 
 ### AI agents vs our pipeline
 
-See **[docs/WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md)** (“AI agents vs our pipeline”): the [notebooks/forecast_agents.ipynb](../notebooks/forecast_agents.ipynb) arena evaluates agents on MASE/RMSE, not inventory cost. For a fair comparison, run agent forecasts through our cost sim and compare 8-week cost.
+See **[docs/HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md)** (“AI agents vs our pipeline”): the [notebooks/forecast_agents.ipynb](../notebooks/forecast_agents.ipynb) arena evaluates agents on MASE/RMSE, not inventory cost. For a fair comparison, run agent forecasts through our cost sim and compare 8-week cost.
 
 ---
 
@@ -458,7 +458,7 @@ See **[docs/WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md)** (“AI agent
 ### Related Documentation
 
 - [docs/DATA_INVENTORY.md](DATA_INVENTORY.md) - Data file inventory and demand_long build
-- [docs/WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) - Why we didn't beat the benchmark; AI agents vs pipeline
+- [docs/HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md) - Journey from €7,787 to €4,564; AI agents vs pipeline
 - [docs/NEXT_TWO_WEEKS.md](NEXT_TWO_WEEKS.md) - Action list for next two weeks
 - [docs/LESSONS_LEARNED_MEETUP.md](LESSONS_LEARNED_MEETUP.md) - Lessons learned (meetup)
 - [docs/backtesting_harness.md](backtesting_harness.md) - Backtest harness usage

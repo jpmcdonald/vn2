@@ -19,6 +19,7 @@ Outputs:
   - reports/pinball/pinball_volume_weighted.csv (volume-weighted version)
 """
 
+import argparse
 import pickle
 from pathlib import Path
 import numpy as np
@@ -29,7 +30,10 @@ from vn2.forecast.evaluation import crps_score
 
 console = Console()
 
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
+MODELS = [
+    'seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware',
+    'slurp_surd', 'slurp_surd_stockout_aware', 'deepar',
+]
 MODEL_QUANTILES = [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 SL_FRACTILES = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.833]
 ALL_FRACTILES = sorted(set(MODEL_QUANTILES + SL_FRACTILES))
@@ -97,6 +101,17 @@ def cost_weighted_pinball(y: float, pred_q: float) -> float:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Compute pinball loss at all quantile levels per model")
+    parser.add_argument(
+        "--checkpoints-dir",
+        type=Path,
+        default=CHECKPOINTS_DIR,
+        help="Checkpoint directory (default: models/checkpoints_h3). Must match training/backtest.",
+    )
+    args = parser.parse_args()
+    checkpoints_dir = args.checkpoints_dir
+    console.print(f"Checkpoints: {checkpoints_dir}")
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     actuals_by_week = {w: load_actuals(w) for w in range(1, 9)}
@@ -126,7 +141,7 @@ def main():
                 store, product = sku
                 actual = actuals.get(sku, 0)
 
-                cp_path = CHECKPOINTS_DIR / model / f"{store}_{product}" / f"fold_{fold_idx}.pkl"
+                cp_path = checkpoints_dir / model / f"{store}_{product}" / f"fold_{fold_idx}.pkl"
                 if not cp_path.exists():
                     continue
                 with open(cp_path, 'rb') as f:

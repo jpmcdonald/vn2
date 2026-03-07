@@ -1,6 +1,6 @@
 # Next Two Weeks: Action List
 
-Concrete backtest and improvement steps following the post-competition review. See [backtesting_against_competition.md](backtesting_against_competition.md) and [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) for context.
+Concrete backtest and improvement steps following the post-competition review. See [backtesting_against_competition.md](backtesting_against_competition.md) and [HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md) for context.
 
 ---
 
@@ -23,7 +23,7 @@ Concrete backtest and improvement steps following the post-competition review. S
 | Task | Action |
 |------|--------|
 | **Forecast error report** | Run [scripts/analyze_forecast_metrics.py](../scripts/analyze_forecast_metrics.py) and evaluation (pinball, CRPS, cost-based) per model/selector on holdout; fill [FORECAST_ERROR_SUMMARY.md](FORECAST_ERROR_SUMMARY.md). |
-| **Benchmark vs us vs winner** | Use `scripts/compare_8week_results.py` for table (our cost, benchmark cost, winner, top-20% threshold); short write-up in [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) or a short report. |
+| **Benchmark vs us vs winner** | Use `scripts/compare_8week_results.py` for table (our cost, benchmark cost, winner, top-20% threshold); short write-up in [HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md) or a short report. |
 | **Optional: agent forecasts** | One run of agent forecasts (from [notebooks/forecast_agents.ipynb](../notebooks/forecast_agents.ipynb)) through our cost sim for one week or a subset of SKUs to see if agent forecasts could have beaten us (cost-based). |
 | **Lessons learned** | Finalize [LESSONS_LEARNED_MEETUP.md](LESSONS_LEARNED_MEETUP.md) for the data science meetup. |
 
@@ -31,5 +31,5 @@ Concrete backtest and improvement steps following the post-competition review. S
 
 ## AI agents vs our pipeline
 
-- **Evaluation plan**: See “AI agents vs our pipeline” in [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md). Same problem (retail sales), different objective (MASE/RMSE vs inventory cost). For a fair comparison, plug agent forecasts into our SIP/newsvendor pipeline and compare 8-week cost, or compare our pinball/CRPS to agent MASE/RMSE on the same holdout.
+- **Evaluation plan**: See “AI agents vs our pipeline” in [HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md). Same problem (retail sales), different objective (MASE/RMSE vs inventory cost). For a fair comparison, plug agent forecasts into our SIP/newsvendor pipeline and compare 8-week cost, or compare our pinball/CRPS to agent MASE/RMSE on the same holdout.
 - **Optional in Week 2**: Run agent forecasts through our sim for one week or a subset of SKUs.

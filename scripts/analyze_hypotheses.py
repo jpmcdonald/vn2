@@ -4,7 +4,7 @@ Analyze corrected backtest results against the four paper hypotheses.
 
 H1 (Jensen Gap): Density-aware SIP vs point+service-level policy
 H2 (Stockout Awareness): slurp_stockout_aware vs slurp_bootstrap
-H3 (SURD Effect): Deferred (SURD models not trained this round)
+H3 (SURD Effect): If SURD models trained, compares to baseline and reads H3 test results when available
 H4 (Sequential Consistency): 8-week ranking vs single-period metrics
 
 Reads from:
@@ -47,6 +47,8 @@ def load_data():
         'wass_crps': 'reports/bias/wasserstein_crps_summary.csv',
         'crps_pinball': 'reports/pinball/crps_summary.csv',
         'worst_skus': 'reports/bias/worst_skus.csv',
+        'h3_results': 'reports/hypothesis_tests/h3_surd_effect_results.csv',
+        'comparison': 'reports/backtest_grid/comparison_to_baseline.csv',
     }
     for key, path in files.items():
         p = Path(path)
@@ -81,7 +83,8 @@ def h1_jensen_gap(data: dict) -> str:
     lines.append("| Model | Cost @ SL=0.50 | Cost @ SL=0.833 | Jensen Delta | Direction |")
     lines.append("|-------|---------------:|----------------:|-------------:|-----------|")
 
-    for model in ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware']:
+    models_in_grid = sorted(grid['model'].unique().tolist())
+    for model in models_in_grid:
         row_50 = grid[(grid['model'] == model) & (grid['sl'] == 0.50)]
         row_83 = grid[(grid['model'] == model) & (grid['sl'] == 0.833)]
         if row_50.empty or row_83.empty:
@@ -99,7 +102,7 @@ def h1_jensen_gap(data: dict) -> str:
     lines.append("")
     lines.append("| Model | Best SL | Best Cost | vs Benchmark (€5,247.80) |")
     lines.append("|-------|--------:|----------:|-------------------------:|")
-    for model in ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware']:
+    for model in models_in_grid:
         mdf = grid[grid['model'] == model].dropna(subset=['total'])
         if mdf.empty:
             continue
@@ -237,20 +240,67 @@ def h3_surd_effect(data: dict) -> str:
     lines.append("**Hypothesis:** Variance-stabilizing transforms (SURD) improve forecast")
     lines.append("sharpness and calibration, particularly for series with heteroskedastic demand.")
     lines.append("")
-    lines.append("### Status: Deferred")
-    lines.append("")
-    lines.append("The SURD-enabled models (`slurp_surd`, `slurp_surd_stockout_aware`) were")
-    lines.append("disabled in the current training configuration. To fully test H3, we would need to:")
-    lines.append("")
-    lines.append("1. Enable and train `slurp_surd` and `slurp_surd_stockout_aware`")
-    lines.append("2. Run the backtest grid with these models")
-    lines.append("3. Compare against the non-SURD SLURP variants")
-    lines.append("")
-    lines.append("**Indirect evidence:** The SURD transforms have been computed")
-    lines.append("(`data/processed/surd_transforms.parquet`) and show meaningful variance")
-    lines.append("reduction for ~40% of series. The 2x2 ablation (SURD on/off x Stockout on/off)")
-    lines.append("is planned for the next training round.")
-    lines.append("")
+
+    grid = data['grid']
+    h3_df = data.get('h3_results', pd.DataFrame())
+    comparison_df = data.get('comparison', pd.DataFrame())
+
+    surd_models = [m for m in grid['model'].unique() if 'surd' in m.lower()] if not grid.empty else []
+
+    if surd_models:
+        lines.append("### Status: SURD models in grid")
+        lines.append("")
+        lines.append("SURD-enabled models in this run: " + ", ".join(sorted(surd_models)) + ".")
+        lines.append("")
+        # Best cost at SL=0.833: SURD vs non-SURD SLURP
+        sl833 = grid[grid['sl'] == 0.833].dropna(subset=['total'])
+        if not sl833.empty:
+            lines.append("### Cost at SL=0.833 (8-week total)")
+            lines.append("")
+            lines.append("| Model | Total Cost | vs slurp_bootstrap |")
+            lines.append("|-------|-----------:|-------------------:|")
+            base_row = sl833[sl833['model'] == 'slurp_bootstrap']
+            base_cost = base_row['total'].values[0] if not base_row.empty else None
+            for _, r in sl833.sort_values('total').iterrows():
+                diff = f"€{r['total'] - base_cost:+,.2f}" if base_cost is not None else "—"
+                lines.append(f"| {r['model']} | €{r['total']:,.2f} | {diff} |")
+            lines.append("")
+        if not comparison_df.empty and 'delta_total' in comparison_df.columns:
+            repro = comparison_df[comparison_df['reproducible'] == True]
+            if not repro.empty:
+                lines.append("### Comparison to baseline run")
+                lines.append("")
+                lines.append(f"Reproducibility: {repro['reproducible'].sum()} of {len(repro)} overlapping (model, sl) rows within €0.01.")
+                lines.append("")
+    elif not h3_df.empty:
+        lines.append("### Status: H3 test results available")
+        lines.append("")
+
+    if not h3_df.empty:
+        lines.append("### H3 statistical test (pinball at critical fractile)")
+        lines.append("")
+        row = h3_df.iloc[0]
+        lines.append(f"- SURD model: {row.get('surd_model', 'N/A')}")
+        lines.append(f"- Identity model: {row.get('identity_model', 'N/A')}")
+        lines.append(f"- Pinball delta (SURD − identity): {row.get('pinball_delta', 'N/A'):.4f} (positive = SURD better)")
+        lines.append(f"- p-value: {row.get('pinball_p_value', 'N/A'):.4f}")
+        lines.append(f"- Hypothesis supported: {row.get('hypothesis_supported', 'N/A')}")
+        lines.append("")
+
+    if not surd_models and h3_df.empty:
+        lines.append("### Status: Deferred")
+        lines.append("")
+        lines.append("The SURD-enabled models (`slurp_surd`, `slurp_surd_stockout_aware`) were")
+        lines.append("not present in the grid for this run. To fully test H3:")
+        lines.append("")
+        lines.append("1. Enable and train `slurp_surd` and `slurp_surd_stockout_aware`")
+        lines.append("2. Run the backtest grid with these models")
+        lines.append("3. Run `scripts/test_h3_surd_effect.py` and optionally `scripts/compare_backtest_to_baseline.py`")
+        lines.append("")
+        lines.append("**Indirect evidence:** The SURD transforms have been computed")
+        lines.append("(`data/processed/surd_transforms.parquet`) and show meaningful variance")
+        lines.append("reduction for ~40% of series.")
+        lines.append("")
 
     return "\n".join(lines)
 

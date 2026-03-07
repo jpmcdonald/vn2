@@ -16,6 +16,7 @@ Outputs:
   - reports/bias/worst_skus.csv             (top 50 worst SKUs per model by composite score)
 """
 
+import argparse
 import pickle
 from pathlib import Path
 from collections import defaultdict
@@ -31,7 +32,10 @@ console = Console()
 
 CRITICAL_FRACTILE = 0.833
 
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
+MODELS = [
+    'seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware',
+    'slurp_surd', 'slurp_surd_stockout_aware', 'deepar',
+]
 QUANTILE_LEVELS = [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 CHECKPOINTS_DIR = Path('models/checkpoints_h3')
 SALES_DIR = Path('data/raw')
@@ -73,8 +77,8 @@ def load_actuals(week: int) -> dict:
     return {(int(r['Store']), int(r['Product'])): int(r[date_col]) for _, r in df.iterrows()}
 
 
-def load_checkpoint_quantiles(model: str, store: int, product: int, fold: int):
-    path = CHECKPOINTS_DIR / model / f"{store}_{product}" / f"fold_{fold}.pkl"
+def load_checkpoint_quantiles(model: str, store: int, product: int, fold: int, checkpoints_dir: Path):
+    path = checkpoints_dir / model / f"{store}_{product}" / f"fold_{fold}.pkl"
     if not path.exists():
         return None
     with open(path, 'rb') as f:
@@ -83,6 +87,17 @@ def load_checkpoint_quantiles(model: str, store: int, product: int, fold: int):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Compute per-model bias, calibration, and distributional quality")
+    parser.add_argument(
+        "--checkpoints-dir",
+        type=Path,
+        default=CHECKPOINTS_DIR,
+        help="Checkpoint directory (default: models/checkpoints_h3). Must match training/backtest.",
+    )
+    args = parser.parse_args()
+    checkpoints_dir = args.checkpoints_dir
+    console.print(f"Checkpoints: {checkpoints_dir}")
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load all actuals
@@ -105,7 +120,7 @@ def main():
             for sku in skus:
                 store, product = sku
                 actual = actuals.get(sku, 0)
-                qdf = load_checkpoint_quantiles(model, store, product, fold_idx)
+                qdf = load_checkpoint_quantiles(model, store, product, fold_idx, checkpoints_dir)
                 if qdf is None:
                     continue
                 n_loaded += 1

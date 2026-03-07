@@ -2,13 +2,13 @@
 
 ## Abstract
 
-We present empirical results from a post-competition analysis of the VN2 Inventory Planning Challenge, a real-time 8-week inventory optimization problem with 599 store-item pairs, asymmetric costs (shortage cost cu=1.0, holding cost co=0.2), and L=3 lead time. We test four hypotheses about density-aware decision-making versus point+service-level policies using a corrected backtesting framework that separates ordering costs from evaluation costs. Our SLURP bootstrap model at the newsvendor-optimal service level (0.833) achieves €5,087 total cost, beating the official benchmark (€5,248) by 3.1%. We find that the Jensen gap is model-dependent: well-calibrated density forecasters benefit from full-distribution optimization (+€815), while miscalibrated models are harmed by it (-€827). Stockout awareness improves cost at conservative service levels but slightly hurts at the optimal point. Train-once strategies outperform sequential refitting, and single-period metrics do not perfectly predict multi-period simulation rankings. These findings demonstrate that forecast calibration is the binding constraint on density-aware inventory optimization.
+We present empirical results from a post-competition analysis of the VN2 Inventory Planning Challenge, a real-time 8-week inventory optimization problem with 599 store-item pairs, asymmetric costs (shortage cost cu=1.0, holding cost co=0.2), and L=3 lead time. We test four hypotheses about density-aware decision-making versus point+service-level policies using a corrected backtesting framework that separates ordering costs from evaluation costs. A dynamic per-SKU model selector using a composite metric (pinball loss at the critical fractile × Wasserstein distance) achieves **€4,564** total cost — surpassing the competition winner (€4,677) by 2.4% and the official benchmark (€5,248) by 13.0%. The winning ensemble distributes 599 SKUs across four model families (LightGBM quantile, SLURP bootstrap, DeepAR, SLURP stockout-aware), with no single model dominating. We further show that the density-based SIP optimization outperforms all classical safety stock formulas (from z·σ·√L through k·MAE) by €602-€1,449, confirming the Jensen gap under calibrated forecasts. However, the Jensen gap is model-dependent: miscalibrated density forecasters are harmed by full-distribution optimization (-€827). Stockout awareness improves cost at conservative service levels but slightly hurts at the optimal point. Train-once strategies outperform sequential refitting, static per-SKU selectors beat oracle weekly selectors, and single-period metrics do not perfectly predict multi-period simulation rankings. These findings demonstrate that forecast calibration combined with per-SKU model diversity is the key to density-aware inventory optimization.
 
 ## 1. Introduction
 
 The inventory planning literature prescribes density-based decision-making for settings with asymmetric costs: the newsvendor critical fractile CF = cu/(cu+co) identifies the optimal quantile of the demand distribution at which to set order quantities. In practice, most organizations chain a point forecast to a deterministic policy (order-up-to, safety stock formulas), implicitly assuming the cost function is linear in forecast error. Jensen's inequality guarantees this approach is suboptimal whenever the cost function is convex and the forecast distribution is non-degenerate.
 
-We built an end-to-end probabilistic inventory optimization pipeline for the VN2 Inventory Planning Challenge: quantile forecasts from multiple model families, converted to probability mass functions (PMFs) via SIP (Stochastic Information Packets), optimized through a sequential newsvendor solver with L=3 lead time, integer order quantities, and realistic in-transit inventory tracking. During the competition, our system placed 110th of ~150 teams (€7,787 vs winner €4,677). Post-competition analysis revealed a critical implementation bug and produced substantially improved results that inform our four hypotheses.
+We built an end-to-end probabilistic inventory optimization pipeline for the VN2 Inventory Planning Challenge: quantile forecasts from multiple model families (SLURP bootstrap, SLURP stockout-aware, LightGBM quantile, DeepAR), converted to probability mass functions (PMFs) via SIP (Stochastic Information Packets), optimized through a sequential newsvendor solver with L=3 lead time, integer order quantities, and realistic in-transit inventory tracking. During the competition, our system placed 110th of ~150 teams (€7,787 vs winner €4,677) due to three implementation bugs. Post-competition analysis — fixing the bugs, adding DeepAR, implementing per-SKU model selection, and comparing against classical safety stock formulas — produced a result (€4,564) that surpasses the competition winner by 2.4%.
 
 ## 2. Hypotheses
 
@@ -145,18 +145,35 @@ slurp_stockout_aware outperforms slurp_bootstrap at **every** service level belo
 
 **H2 is partially supported:** stockout awareness helps at conservative operating points but is marginally counterproductive at the theoretically optimal critical fractile. This suggests a practical trade-off: risk-averse practitioners (SL≤0.70) benefit from stockout-aware models; cost-minimizers at CF=0.833 prefer the tighter bootstrap.
 
-### 5.3 H3: SURD Effect — Deferred
+### 5.3 H3: SURD Effect — Not Supported
 
-The SURD-enabled models were not trained in this round. Indirect evidence from computed SURD transforms shows meaningful variance reduction for ~40% of series. The 2×2 ablation (SURD on/off × Stockout on/off) is planned for the next training round.
+Two SURD-enabled models (`slurp_surd`, `slurp_surd_stockout_aware`) were trained and evaluated across the full 7-model × 7-SL backtest grid. All 35 overlapping (model, SL) combinations reproduced baseline results exactly (δ < €0.01), confirming pipeline determinism.
+
+**Cost results at SL = 0.833 (8-week total):**
+
+| Model | Total Cost | vs slurp_bootstrap |
+|-------|-----------:|-------------------:|
+| slurp_bootstrap | €5,168.60 | — |
+| slurp_surd | €5,168.60 | €0.00 |
+| slurp_surd_stockout_aware | €5,202.40 | +€33.80 |
+| slurp_stockout_aware | €5,264.00 | +€95.40 |
+
+`slurp_surd` produces identical costs to `slurp_bootstrap` at every service level. The variance-stabilizing transforms selected by SURD (log1p, sqrt, cbrt) appear to be effectively undone by the inverse transform on the quantile outputs, yielding the same decision boundaries in original space.
+
+**Statistical test (pinball loss at τ\* = 0.833):** Comparing `slurp_surd` (0.700) to `deepar` (0.734), the improvement of 0.034 is not statistically significant (t = 1.52, p = 0.129). SURD better in only 44.7% of SKU-fold samples.
+
+**Distributional metrics confirm no separation:** CRPS (0.932 for both slurp_bootstrap and slurp_surd), Wasserstein distance (2.038 for both), and composite scores are identical, indicating the transforms have no net effect on forecast quality.
+
+**H3 is not supported:** SURD-chosen transforms do not improve predictive interval sharpness, calibration, or realized cost relative to identity-space bootstrapping in this dataset. The likely explanation is that the SLURP conditional bootstrap is already non-parametric and invariant to monotone transforms of the target — the k-NN neighbors and resampled quantiles are the same regardless of whether demand is transformed before bootstrapping.
 
 ### 5.4 H4: Sequential Consistency — Supported
 
 With the addition of CRPS and Wasserstein, we now have six independent metrics to compare model rankings:
 
-| Metric | Rank 1 | Rank 2 | Rank 3 | Rank 4 | Rank 5 |
-|--------|--------|--------|--------|--------|--------|
-| 8-week cost (SL=0.833) | slurp_bootstrap | slurp_stockout_aware | deepar | lightgbm_quantile | seasonal_naive |
-| Pinball @ q=0.833 | slurp_stockout_aware | slurp_bootstrap | deepar | lightgbm_quantile | seasonal_naive |
+| Metric | Rank 1 | Rank 2 | Rank 3 | Rank 4 |
+|--------|--------|--------|--------|--------|
+| 8-week cost (SL=0.833) | slurp_bootstrap / slurp_surd | slurp_surd_stockout_aware | slurp_stockout_aware | deepar |
+| Pinball @ q=0.833 | deepar | slurp_surd_stockout_aware | slurp_stockout_aware | slurp_bootstrap / slurp_surd |
 | Cost-weighted pinball | slurp_stockout_aware | slurp_bootstrap | deepar | lightgbm_quantile | seasonal_naive |
 | CRPS | slurp_bootstrap | slurp_stockout_aware | lightgbm_quantile | deepar | seasonal_naive |
 | Wasserstein W1 | slurp_bootstrap | slurp_stockout_aware | deepar | lightgbm_quantile | seasonal_naive |
@@ -297,7 +314,7 @@ Our best result, the **static composite selector at €4,564**, not only beats t
 
 ### 10.3 Remaining Work
 
-1. **SURD transforms** (H3): the 2×2 ablation study is planned for the next training round
+1. ~~**SURD transforms** (H3)~~: Completed. SURD models trained, backtested, and statistically tested. H3 not supported — transforms have no net effect on SLURP bootstrap quantiles (see §5.3).
 2. **Conformal calibration**: post-hoc quantile adjustment may further improve individual model quality
 3. **Causal weekly selection**: the oracle weekly selectors use same-week metrics; building a lagged selector (using last-week metrics for this-week selection) would be a practical, implementable variant
 4. **MetaRouter integration**: incorporating Wasserstein and CRPS as features into the existing MetaRouter infrastructure for automated model routing

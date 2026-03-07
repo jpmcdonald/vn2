@@ -4,20 +4,30 @@ Backtest all trained models across a range of service levels.
 Saves per-run weekly results, per-SKU diagnostics, and a summary grid to CSV.
 
 Uses the corrected full_L3_simulation.py with separate eval_costs.
+Pass --checkpoints-dir to match where training wrote (default: models/checkpoints).
 """
 
+import argparse
 import subprocess
 import sys
 import re
 import csv
 from pathlib import Path
 
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
+MODELS = [
+    'seasonal_naive',
+    'lightgbm_quantile',
+    'slurp_bootstrap',
+    'slurp_stockout_aware',
+    'slurp_surd',
+    'slurp_surd_stockout_aware',
+    'deepar',
+]
 SERVICE_LEVELS = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.833]
 
 OUTPUT_DIR = Path('reports/backtest_grid')
 
-BASE_CMD = [sys.executable, "scripts/full_L3_simulation.py", "--max-weeks", "8"]
+DEFAULT_CHECKPOINTS_DIR = Path('models/checkpoints')
 
 
 def extract_cost(output: str) -> dict:
@@ -35,9 +45,13 @@ def extract_cost(output: str) -> dict:
     return {"holding": holding, "shortage": shortage, "total": total}
 
 
-def run_sim(model: str, sl: float) -> dict:
+def run_sim(model: str, sl: float, checkpoints_dir: Path) -> dict:
     run_dir = OUTPUT_DIR / f"{model}_sl{sl:.3f}"
-    cmd = BASE_CMD + [
+    cmd = [
+        sys.executable,
+        "scripts/full_L3_simulation.py",
+        "--max-weeks", "8",
+        "--checkpoints-dir", str(checkpoints_dir),
         "--default-model", model,
         "--service-level", str(sl),
         "--output-dir", str(run_dir),
@@ -50,17 +64,28 @@ def run_sim(model: str, sl: float) -> dict:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Backtest all trained models x service levels")
+    parser.add_argument(
+        "--checkpoints-dir",
+        type=Path,
+        default=DEFAULT_CHECKPOINTS_DIR,
+        help="Checkpoint directory (must match training config paths.checkpoints). Default: models/checkpoints",
+    )
+    args = parser.parse_args()
+    checkpoints_dir = args.checkpoints_dir
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     results = []
 
     print("=" * 80)
     print("Model x Service-Level Backtest Grid  (eval_costs: cu=1.0, co=0.2)")
+    print(f"Checkpoints: {checkpoints_dir}")
     print("=" * 80)
 
     for model in MODELS:
         for sl in SERVICE_LEVELS:
             print(f"\n{model} @ SL={sl:.3f} ...")
-            costs = run_sim(model, sl)
+            costs = run_sim(model, sl, checkpoints_dir)
             results.append({"model": model, "sl": sl, **costs})
             if costs["total"] is not None:
                 print(f"  Holding=€{costs['holding']:.2f}  Shortage=€{costs['shortage']:.2f}  Total=€{costs['total']:.2f}")

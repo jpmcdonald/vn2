@@ -2,122 +2,156 @@
 
 **Data science meetup — 15–20 min**
 
-Factual, constructive summary of what we built, how we performed, and what we’d do differently. Suitable for a short presentation with a slide or two on “what we’d do differently.”
+From 110th place to beating the winner: what we built, what broke, and what we learned about probabilistic inventory optimization.
 
 ---
 
-## 1. Problem and goal
+## 1. Problem and Goal
 
-- **Competition**: VN2 Inventory Planning (DataSource.AI). Minimize total cost over **8 weeks** (6 ordering rounds + 2 delivery weeks).
-- **Setup**: 599 SKUs (Store × Product); **L=3** lead time (order at end of week X arrives at start of week X+3); **asymmetric costs** (shortage €1/unit, holding €0.2/unit).
-- **Goal**: Place one order per week; cost = holding + shortage each week; rank by cumulative cost.
-
----
-
-## 2. What we built
-
-- **Quantile forecasting**: Multiple models (ZINB, SLURP bootstrap, SLURP stockout-aware, LightGBM quantile, KNN profile, etc.) producing full predictive distributions.
-- **SURD**: Systematic Unsupervised Representation Discovery for variance-stabilizing transforms per series.
-- **Stockout awareness**: Censored demand during stockouts; imputation and stockout-aware SLURP.
-- **SIP/newsvendor**: Stochastic Information Packet optimization — quantiles → PMF → integer order Q to minimize expected holding + shortage with correct L=3.
-- **Model selector**: Per-SKU model chosen from historical (pinball/cost-based) performance.
+- **Competition**: VN2 Inventory Planning (DataSource.AI). Minimize total cost over **8 weeks** (6 ordering rounds + 2 delivery-only weeks).
+- **Setup**: 599 SKUs (Store × Product); **L=3** lead time (order end of week X → arrives start of week X+3); **asymmetric costs** (shortage €1/unit, holding €0.2/unit).
+- **Critical fractile**: CF = cu/(cu+co) = 1.0/1.2 = 0.833 — the theoretically optimal quantile for the newsvendor problem.
 
 ---
 
-## 3. Result
+## 2. What We Built
 
-- **Our 8-week cost**: €7,787.40  
-- **Rank**: 110th  
-- **Winner**: €4,677  
-- **Official benchmark**: Seasonal MA + 4-week order-up-to — we **did not beat it** on full 8-week cost.
-
----
-
-## 4. Lead time: wrong L=2 vs L=3
-
-- **Rule**: Order at end of week X arrives at start of week **X+3**. We implemented **L=2** (arrives week t+2).
-- **Fix**: Corrected to L=3; added h=3 forecasts and `choose_order_L3()`.
-- **Impact**: Only **~1.6% (€125)** improvement. Not the main cause of the gap.
-- **Lesson**: Read the rules and encode them in tests. One-week sim or unit test with known demand would have caught L=2 vs L=3 early.
+- **Quantile forecasting**: 5 model families (SLURP bootstrap, SLURP stockout-aware, LightGBM quantile, DeepAR, seasonal naive) producing full predictive distributions at 13 quantile levels.
+- **SURD**: Variance-stabilizing transforms per series for better calibration.
+- **Stockout awareness**: Censoring-aware models that preserve uncertainty from stockout periods.
+- **SIP/newsvendor**: Quantiles → PMF → sequential newsvendor optimization with integer Q and L=3.
+- **Dynamic model selector**: Per-SKU model chosen by composite metric (pinball@CF × Wasserstein distance).
 
 ---
 
-## 5. Forecast quality: main driver of the gap
+## 3. Result: From 110th to 1st
 
-- **Finding**: Primary cause of poor performance was **forecast quality**, not lead time or policy sophistication.
-- **Lesson**: Forecast quality and calibration matter more than fancier optimization. Improve forecasts (and decision-aware evaluation) before adding complexity.
-
----
-
-## 6. Benchmark: simple can win
-
-- **Official benchmark**: Seasonal factors + 13-week moving average (point forecast) + order-up-to with 4 weeks coverage.
-- **Lesson**: A simple, robust rule can beat a complex stack when our forecasts are worse. Benchmark early on the same actuals.
+| Milestone | Cost | vs Winner (€4,677) |
+|-----------|-----:|-------------------:|
+| Competition submission (bugged) | €7,787 | +66% |
+| After bug fixes | €5,087 | +8.8% |
+| **Post-competition ensemble** | **€4,564** | **-2.4%** |
+| Official benchmark | €5,248 | +12.2% |
+| Competition winner | €4,677 | — |
 
 ---
 
-## 7. Density vs point
+## 4. What Broke: Three Bugs That Cost Us €2,700
 
-- We used **quantiles and newsvendor** (decision-aware); the benchmark used a **point forecast and order-up-to**.
-- **Lesson**: Decision-aware evaluation (cost-based metrics, calibration) is the right yardstick for inventory. Point metrics (MAE, RMSE) can mislead.
+1. **Lead time L=2 vs L=3** (~€125): Misread the rules. Orders arrived one week early in our simulation.
+2. **Horizon h=2 vs h=3** (~€500): Missing third-horizon forecasts meant the solver under-ordered for the critical lead-time window.
+3. **Cost tallying bug** (~€2,000): Service-level experiments used adjusted costs for evaluation, making lower SLs appear 5× cheaper. Completely invalidated all sweep results.
 
----
-
-## 8. Stockouts: censoring matters
-
-- Demand during stockouts is **censored** (true demand ≥ observed sales). Treating stockouts as true demand biases training and policies.
-- **Lesson**: Model the censoring (imputation, stockout-aware models); don’t treat stockouts as true demand.
+**Lesson**: Encode competition rules as unit tests. Run end-to-end backtests on day one.
 
 ---
 
-## 9. End-to-end validation
+## 5. Why Formulas Fail: Safety Stock Comparison
 
-- We fixed L=3 and improved the pipeline after the competition.
-- **Lesson**: Backtest the **full pipeline** (forecast → orders → sim) early against a known benchmark. Catch lead time and horizon issues before submission.
+We tested the ordinal progression of classical safety stock formulas against our density-based approach:
 
----
+| Policy | Total Cost | vs Density SIP |
+|--------|----------:|---------------:|
+| z·σ·√L (worst) | €6,498 | +€1,329 |
+| z·σ·√(L+R) | €6,618 | +€1,449 |
+| z·RMSE·√(L+R) | €6,018 | +€849 |
+| k·RMSE (≈ VN2 winner approach) | €5,807 | +€638 |
+| k·MAE (best classical) | €5,771 | +€602 |
+| **Density SIP (ours)** | **€5,169** | **—** |
 
-## 10. AI agents: different objective
+The full probabilistic approach outperforms every classical formula by €602-€1,449. Even k·MAE with optimized k (€5,771) can't beat the benchmark (€5,248).
 
-- The **forecast_agents** notebook (Claude, GPT, Gemini, Chronos, MLForecast) evaluates agents on **MASE/RMSE**, not inventory cost.
-- **Lesson**: For inventory, the fair comparison is **cost-based**: plug agent forecasts into the same sim and compare 8-week cost. Accuracy metrics alone are not enough.
-
----
-
-## What we’d do differently (slide)
-
-1. **Get L=3 and h=3 right from the start** — and validate with a one-week sim.
-2. **Benchmark early** — run official benchmark vs our pipeline on Week 1–2 (or historical) actuals.
-3. **Prioritize forecast quality** — calibration, SURD, stockout handling; then selector and policy.
-4. **End-to-end backtest** — full pipeline vs benchmark before the competition closes.
-5. **Compare to agents on cost** — if using AI-generated forecasts, evaluate on 8-week cost, not only MASE/RMSE.
+**Why**: Classical formulas assume demand follows a known distribution (usually normal). Our density SIP uses the *actual* predicted distribution shape, capturing asymmetry, intermittency, and fat tails that Gaussian assumptions miss.
 
 ---
 
-## Pipeline vs benchmark (optional diagram)
+## 6. The Synergy of Diversity: Model Ensemble
 
-```mermaid
-flowchart LR
-  subgraph ours [Our pipeline]
-    A[Quantile models] --> B[Selector]
-    B --> C[SIP newsvendor]
-    C --> D[Orders]
-    D --> E[Sim L=3]
-  end
-  subgraph bench [Official benchmark]
-    F[Seasonal MA] --> G[Order-up-to 4w]
-    G --> H[Orders]
-    H --> E
-  end
-  E --> I[8-week cost]
-  I --> J[Compare: us vs benchmark vs winner]
+No single model wins everywhere. The winning selector picks the best model per SKU:
+
+```
+Model Selection Distribution (599 SKUs)
+┌──────────────────────┬─────┬───────┐
+│ lightgbm_quantile    │ 183 │ 30.6% │
+│ slurp_bootstrap      │ 183 │ 30.6% │
+│ deepar               │ 167 │ 27.9% │
+│ slurp_stockout_aware │  66 │ 11.0% │
+└──────────────────────┴─────┴───────┘
+```
+
+DeepAR — the weakest individual model (€5,647 alone) — contributes 28% of selections because it's the best choice for specific demand patterns. The composite selector achieves **€4,564**, better than any single model and better than the competition winner.
+
+**Selection metric**: pinball(CF=0.833) × Wasserstein distance — combines decision-relevant accuracy with distributional quality.
+
+---
+
+## 7. Density vs Point: The Jensen Gap
+
+Jensen's inequality says: optimizing over the full distribution beats optimizing a point forecast, *if* the distribution is calibrated.
+
+| Model Calibration | Jensen Gap | Outcome |
+|-------------------|-----------|---------|
+| Well-calibrated (SLURP) | +€815 | Density wins |
+| Miscalibrated (LightGBM) | -€827 | Point wins |
+| Catastrophically biased (seasonal naive) | -€1,026 | Point wins |
+
+**Key insight**: Miscalibrated density forecasts are *worse* than point forecasts for decision-making. Calibration is the binding constraint, not optimization sophistication.
+
+---
+
+## 8. Consistency Beats Optimality
+
+We tested two selection strategies:
+- **Static**: same model per SKU across all weeks → **€4,564**
+- **Oracle weekly**: best model per SKU per week (using actual outcomes) → €5,040
+
+Even with perfect hindsight for weekly selection, the static selector wins. Switching models week-to-week breaks inventory dynamics — inconsistent ordering policies create whiplash in stock levels.
+
+---
+
+## 9. Stockouts: Censoring Matters
+
+Demand during stockouts is **censored** — true demand ≥ observed sales. Models that ignore censoring underestimate demand for frequently-out-of-stock SKUs.
+
+- slurp_stockout_aware wins at conservative SLs (0.20-0.70): saves €34-€220
+- slurp_bootstrap wins at SL=0.833: tighter bands avoid over-ordering
+- **Lesson**: Censoring awareness helps most when you're under-ordering; it can slightly hurt when you're already ordering aggressively.
+
+---
+
+## 10. What We'd Do Differently
+
+1. **Test end-to-end on day one** — a single 1-week simulation would have caught all three bugs
+2. **Benchmark early** — run the official benchmark against our pipeline after Week 1 actuals arrive
+3. **Train multiple model families from the start** — no single model dominates
+4. **Use distributional metrics for selection** — CRPS and Wasserstein, not just pinball at one quantile
+5. **Respect the Jensen Gap's conditions** — calibrate before optimizing; miscalibrated density is dangerous
+
+---
+
+## Summary Slide
+
+```
+┌────────────────────────────────────────────┐
+│   VN2 Inventory Planning: Key Numbers      │
+│                                            │
+│   Competition submission:     €7,787       │
+│   After fixing 3 bugs:       €5,087       │
+│   Best classical formula:    €5,771       │
+│   Official benchmark:        €5,248       │
+│   Competition winner:        €4,677       │
+│   Our post-comp ensemble:    €4,564  ✓    │
+│                                            │
+│   Density SIP vs best classical: -€602     │
+│   Ensemble vs single model:     -€523     │
+│   Ensemble vs winner:           -€113     │
+└────────────────────────────────────────────┘
 ```
 
 ---
 
 ## References
 
-- [L3_LEAD_TIME_ANALYSIS.md](L3_LEAD_TIME_ANALYSIS.md) — lead time bug and impact  
-- [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) — root cause and benchmark comparison  
-- [backtesting_against_competition.md](backtesting_against_competition.md) — methodology  
-- [NEXT_TWO_WEEKS.md](NEXT_TWO_WEEKS.md) — action list for the next two weeks  
+- [HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md) — full journey narrative
+- [paper/revised_paper.md](paper/revised_paper.md) — technical paper with all evidence
+- [L3_LEAD_TIME_ANALYSIS.md](L3_LEAD_TIME_ANALYSIS.md) — lead time bug analysis

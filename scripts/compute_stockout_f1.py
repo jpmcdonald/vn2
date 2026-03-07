@@ -24,7 +24,10 @@ console = Console()
 
 GRID_DIR = Path('reports/backtest_grid')
 OUTPUT_DIR = Path('reports/f1')
-MODELS = ['seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware', 'deepar']
+MODELS = [
+    'seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware',
+    'slurp_surd', 'slurp_surd_stockout_aware', 'deepar',
+]
 SERVICE_LEVELS = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.833]
 
 CU = 1.0

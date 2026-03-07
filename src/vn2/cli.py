@@ -419,7 +419,8 @@ def cmd_forecast(args):
     demand_raw_path = Path(cfg['paths']['processed']) / 'demand_long.parquet'
     demand_winsor_path = Path(cfg['paths']['processed']) / 'demand_imputed_winsor.parquet'
     master_path = Path(cfg['paths']['processed']) / 'master.parquet'
-    surd_path = Path(cfg['paths']['processed']) / 'surd_transforms.parquet'
+    surd_filename = cfg['paths'].get('surd_transforms', 'surd_transforms.parquet')
+    surd_path = Path(cfg['paths']['processed']) / surd_filename
     
     # Load both datasets
     if not demand_raw_path.exists():

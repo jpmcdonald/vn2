@@ -49,5 +49,5 @@ Answer: **Is our forecast error that far off?** Compare our quantile forecasts t
 
 - [src/vn2/forecast/evaluation.py](../src/vn2/forecast/evaluation.py) — `evaluate_forecast`, pinball, CRPS, coverage, cost
 - [scripts/analyze_forecast_metrics.py](../scripts/analyze_forecast_metrics.py) — demand-parquet and checkpoint usage
-- [WHY_NOT_BEAT_BENCHMARK.md](WHY_NOT_BEAT_BENCHMARK.md) — root cause and decomposition
+- [HOW_WE_BEAT_THE_WINNER.md](HOW_WE_BEAT_THE_WINNER.md) — journey from bugs to beating the winner
 

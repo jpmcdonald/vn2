@@ -377,6 +377,7 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
         self.history_in_stock = None
         self.nn_model = None
         self.sku_id = None
+        self.feature_columns: Optional[list] = None
         # PID controls
         self.use_pid_weights = use_pid_weights
         self.pid_weights_df = pid_weights_df
@@ -477,6 +478,8 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
                                 self.n_neighbors = int(np.clip(k_val, 5, 200))
                 except Exception:
                     pass
+
+            self.feature_columns = list(X.columns)
 
             # Use features for conditional sampling
             X_vals = X.fillna(X.mean()).values
@@ -601,7 +604,10 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
             if self.nn_model is not None and X_future is not None and len(X_future) >= step:
                 # Conditional bootstrap: find similar historical observations
                 idx = min(step - 1, len(X_future) - 1)
-                future_features = X_future.iloc[idx:idx+1].fillna(X_future.mean()).values
+                Xf = X_future
+                if self.feature_columns is not None and isinstance(Xf, pd.DataFrame):
+                    Xf = Xf.reindex(columns=self.feature_columns, fill_value=0)
+                future_features = Xf.iloc[idx:idx+1].fillna(Xf.mean()).values
                 future_features = np.nan_to_num(future_features, nan=0.0)
                 
                 # Find k-nearest neighbors
