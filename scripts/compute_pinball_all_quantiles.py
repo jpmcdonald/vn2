@@ -31,8 +31,10 @@ from vn2.forecast.evaluation import crps_score
 console = Console()
 
 MODELS = [
-    'seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware',
-    'slurp_surd', 'slurp_surd_stockout_aware', 'deepar',
+    'seasonal_naive', 'lightgbm_quantile', 'lightgbm_surd',
+    'slurp_bootstrap', 'slurp_stockout_aware',
+    'slurp_surd', 'slurp_surd_stockout_aware',
+    'deepar', 'deepar_surd',
 ]
 MODEL_QUANTILES = [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 SL_FRACTILES = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.833]

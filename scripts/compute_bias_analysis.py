@@ -33,8 +33,10 @@ console = Console()
 CRITICAL_FRACTILE = 0.833
 
 MODELS = [
-    'seasonal_naive', 'lightgbm_quantile', 'slurp_bootstrap', 'slurp_stockout_aware',
-    'slurp_surd', 'slurp_surd_stockout_aware', 'deepar',
+    'seasonal_naive', 'lightgbm_quantile', 'lightgbm_surd',
+    'slurp_bootstrap', 'slurp_stockout_aware',
+    'slurp_surd', 'slurp_surd_stockout_aware',
+    'deepar', 'deepar_surd',
 ]
 QUANTILE_LEVELS = [0.01, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
 CHECKPOINTS_DIR = Path('models/checkpoints_h3')

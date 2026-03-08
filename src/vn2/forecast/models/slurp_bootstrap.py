@@ -77,11 +77,12 @@ class SLURPBootstrapForecaster(BaseForecaster):
         """
         self.history_y = y.values
 
-        # Try to infer SKU id from index/name
-        if hasattr(y.index, 'names') and len(y.index.names) >= 2:
-            self.sku_id = (y.index[0][0], y.index[0][1])
-        elif hasattr(y, 'name') and isinstance(y.name, tuple) and len(y.name) >= 2:
-            self.sku_id = (y.name[0], y.name[1])
+        # Try to infer SKU id from index/name (only if not pre-set by pipeline)
+        if self.sku_id is None:
+            if hasattr(y.index, 'names') and len(y.index.names) >= 2:
+                self.sku_id = (y.index[0][0], y.index[0][1])
+            elif hasattr(y, 'name') and isinstance(y.name, tuple) and len(y.name) >= 2:
+                self.sku_id = (y.name[0], y.name[1])
         
         # Store stockout indicators if available
         if self.stockout_aware and X is not None and 'in_stock' in X.columns:
@@ -394,15 +395,12 @@ class SURDSLURPBootstrapForecaster(BaseForecaster):
             X: Feature matrix (calendar, lags, rolling stats)
                 If stockout_aware=True, X must contain 'in_stock' column
         """
-        # Extract SKU ID from index
-        if hasattr(y.index, 'names') and len(y.index.names) >= 2:
-            # MultiIndex: (store, product, ...)
-            self.sku_id = (y.index[0][0], y.index[0][1])
-        elif hasattr(y, 'name') and isinstance(y.name, tuple) and len(y.name) >= 2:
-            self.sku_id = (y.name[0], y.name[1])
-        else:
-            # Fallback: no transform
-            self.sku_id = None
+        # Extract SKU ID from index (only if not pre-set by pipeline)
+        if self.sku_id is None:
+            if hasattr(y.index, 'names') and len(y.index.names) >= 2:
+                self.sku_id = (y.index[0][0], y.index[0][1])
+            elif hasattr(y, 'name') and isinstance(y.name, tuple) and len(y.name) >= 2:
+                self.sku_id = (y.name[0], y.name[1])
         
         # Get SKU's optimal transform from SURD analysis
         if self.use_surd and self.surd_transforms is not None and self.sku_id is not None:

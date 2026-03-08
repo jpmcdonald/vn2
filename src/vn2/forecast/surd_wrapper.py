@@ -117,29 +117,56 @@ class SURDWrapper(BaseForecaster):
     
     For quantile forecasts, the inversion preserves rank ordering but may not
     preserve exact coverage due to Jensen's inequality.
+    
+    Supports per-SKU transform lookup from a surd_transforms_df when sku_id
+    is set by the pipeline before fit().
     """
     
     def __init__(
         self,
         base_forecaster: BaseForecaster,
         transform: str = 'auto',
-        transform_config: Optional[Dict] = None
+        transform_config: Optional[Dict] = None,
+        surd_transforms_df: Optional[pd.DataFrame] = None,
     ):
         """Initialize SURD wrapper.
         
         Args:
             base_forecaster: The forecaster to wrap
-            transform: Transform name or 'auto' for automatic selection
+            transform: Transform name, 'auto' for automatic selection,
+                       or 'lookup' to use surd_transforms_df with sku_id
             transform_config: Optional configuration for transforms
+            surd_transforms_df: Pre-computed per-SKU transforms (Store, Product, best_transform)
         """
         super().__init__(base_forecaster.config, name=f"SURD_{base_forecaster.name}")
         self.base_forecaster = base_forecaster
         self.transform_name = transform
         self.transform_config = transform_config or {}
+        self.surd_transforms_df = surd_transforms_df
+        self.sku_id: Optional[tuple] = None
         
         self._selected_transform: str = 'identity'
-        self._forward: Callable = TRANSFORMS['identity']['forward']
-        self._inverse: Callable = TRANSFORMS['identity']['inverse']
+
+    def _lookup_transform(self) -> str:
+        """Look up the per-SKU transform from surd_transforms_df."""
+        if self.surd_transforms_df is None or self.sku_id is None:
+            return 'identity'
+        df = self.surd_transforms_df
+        if isinstance(df.index, pd.MultiIndex):
+            try:
+                return df.loc[self.sku_id, 'best_transform']
+            except KeyError:
+                return 'identity'
+        mask = (df['Store'] == self.sku_id[0]) & (df['Product'] == self.sku_id[1])
+        if mask.any():
+            return df.loc[mask, 'best_transform'].iloc[0]
+        return 'identity'
+
+    def _forward(self, x: np.ndarray) -> np.ndarray:
+        return TRANSFORMS[self._selected_transform]['forward'](x)
+
+    def _inverse(self, x: np.ndarray) -> np.ndarray:
+        return TRANSFORMS[self._selected_transform]['inverse'](x)
     
     def fit(self, y: pd.Series, X: Optional[pd.DataFrame] = None) -> 'SURDWrapper':
         """Fit the wrapped forecaster on transformed data.
@@ -154,13 +181,12 @@ class SURDWrapper(BaseForecaster):
         y_values = y.values if hasattr(y, 'values') else np.array(y)
         
         # Select transform
-        if self.transform_name == 'auto':
+        if self.transform_name == 'lookup':
+            self._selected_transform = self._lookup_transform()
+        elif self.transform_name == 'auto':
             self._selected_transform = select_best_transform(y_values)
         else:
             self._selected_transform = self.transform_name
-        
-        self._forward = TRANSFORMS[self._selected_transform]['forward']
-        self._inverse = TRANSFORMS[self._selected_transform]['inverse']
         
         # Transform data
         y_transformed = pd.Series(self._forward(y_values), index=y.index if hasattr(y, 'index') else None)

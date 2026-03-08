@@ -231,17 +231,45 @@ def train_gluonts_deepar(
     num_layers: int = 2,
     hidden_size: int = 40,
     num_samples: int = 200,
+    surd_transforms_df: Optional[pd.DataFrame] = None,
+    output_subdir: str = 'deepar',
 ) -> Dict:
-    """Train DeepAR using GluonTS and generate per-SKU checkpoint files."""
+    """Train DeepAR using GluonTS and generate per-SKU checkpoint files.
+
+    When surd_transforms_df is provided, demand is transformed per-SKU
+    before training and samples are inverse-transformed after prediction.
+    """
     from gluonts.torch.model.deepar import DeepAREstimator
     from gluonts.dataset.pandas import PandasDataset
+    from vn2.forecast.transforms import apply_transform, inverse_transform
+
+    use_surd = surd_transforms_df is not None
+    if use_surd:
+        print(f"SURD mode: will transform targets per-SKU ({output_subdir})")
 
     print("Preparing data for GluonTS...")
 
     comp_start = pd.Timestamp('2024-04-15')
     train_df = df[df['week'] < comp_start].copy()
 
+    # Build per-SKU transform lookup
+    sku_transform: Dict[str, str] = {}
+    if use_surd:
+        for _, row in surd_transforms_df.iterrows():
+            uid = f"{int(row['Store'])}_{int(row['Product'])}"
+            sku_transform[uid] = row['best_transform']
+
     gluon_df = train_df[['unique_id', 'week', 'demand']].copy()
+
+    if use_surd:
+        transformed = []
+        for uid, grp in gluon_df.groupby('unique_id'):
+            t = sku_transform.get(uid, 'identity')
+            grp = grp.copy()
+            grp['demand'] = apply_transform(grp['demand'].values.astype(float), t)
+            transformed.append(grp)
+        gluon_df = pd.concat(transformed)
+
     gluon_df = gluon_df.rename(columns={'week': 'timestamp', 'demand': 'target'})
     gluon_df = gluon_df.set_index('timestamp')
 
@@ -283,6 +311,11 @@ def train_gluonts_deepar(
     for uid, forecast in zip(uid_order, forecast_it):
         store, product = map(int, uid.split('_'))
         samples = forecast.samples  # shape: (num_samples, prediction_length)
+
+        if use_surd:
+            t = sku_transform.get(uid, 'identity')
+            samples = inverse_transform(samples, t)
+
         samples = np.clip(samples, 0, None)  # demand is non-negative
         quantiles_arr = np.quantile(samples, QUANTILE_LEVELS, axis=0).T  # (horizon, n_q)
         quantiles_df = pd.DataFrame(
@@ -290,7 +323,7 @@ def train_gluonts_deepar(
             index=range(1, prediction_length + 1),
             columns=QUANTILE_LEVELS,
         )
-        sku_dir = output_dir / 'deepar' / f'{store}_{product}'
+        sku_dir = output_dir / output_subdir / f'{store}_{product}'
         sku_dir.mkdir(parents=True, exist_ok=True)
         for fold_idx in range(12):
             path = sku_dir / f'fold_{fold_idx}.pkl'
@@ -298,9 +331,9 @@ def train_gluonts_deepar(
                 pickle.dump({'quantiles': quantiles_df}, f)
         n_saved += 1
 
-    print(f"Saved {n_saved}/{uid_list} SKU checkpoints to {output_dir / 'deepar'}")
+    print(f"Saved {n_saved}/{uid_list} SKU checkpoints to {output_dir / output_subdir}")
 
-    predictor_path = output_dir / 'deepar_gluonts'
+    predictor_path = output_dir / f'{output_subdir}_gluonts'
     predictor_path.mkdir(parents=True, exist_ok=True)
     predictor.serialize(predictor_path)
 
@@ -325,6 +358,8 @@ def main():
     parser.add_argument("--gpus", type=int, default=0, help="Number of GPUs (0 for CPU)")
     parser.add_argument("--backend", choices=['pytorch-forecasting', 'gluonts', 'auto'], default='auto')
     parser.add_argument("--max-skus", type=int, default=None, help="Limit SKUs for testing")
+    parser.add_argument("--surd", action="store_true", help="Apply per-SKU SURD transforms (saves to deepar_surd/)")
+    parser.add_argument("--surd-path", type=Path, default=Path("data/processed/surd_transforms.parquet"))
     args = parser.parse_args()
     
     # Check available backends
@@ -388,6 +423,16 @@ def main():
         print(f"Saved {n_saved} SKU checkpoints")
         
     else:  # gluonts
+        surd_df = None
+        output_subdir = 'deepar'
+        if args.surd:
+            if args.surd_path.exists():
+                surd_df = pd.read_parquet(args.surd_path)
+                output_subdir = 'deepar_surd'
+                print(f"SURD transforms loaded: {len(surd_df)} SKUs from {args.surd_path}")
+            else:
+                print(f"WARNING: --surd specified but {args.surd_path} not found, training without SURD")
+
         result = train_gluonts_deepar(
             df=df,
             output_dir=args.output_root,
@@ -396,6 +441,8 @@ def main():
             context_length=52,
             num_layers=args.rnn_layers,
             hidden_size=args.hidden_size,
+            surd_transforms_df=surd_df,
+            output_subdir=output_subdir,
         )
         print(f"Model saved to: {result['predictor_path']}")
         print(f"Checkpoints: {result['n_saved']} SKUs")

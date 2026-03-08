@@ -174,6 +174,10 @@ class ForecastPipeline:
             
             model.set_metadata('sku_id', task.sku_id)
             model.set_metadata('fold_idx', task.fold_idx)
+
+            # Pre-set sku_id so SURD models can look up transforms before fit()
+            if hasattr(model, 'sku_id'):
+                model.sku_id = task.sku_id
             
             # Fit with timeout protection
             with warnings.catch_warnings():

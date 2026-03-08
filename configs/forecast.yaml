@@ -55,6 +55,15 @@ models:
     learning_rate: 0.05
     n_estimators: 100
     min_data_in_leaf: 20
+
+  lightgbm_surd:
+    enabled: true
+    max_depth: 6
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 100
+    min_data_in_leaf: 20
+    use_surd: true
   
   ets:
     enabled: false

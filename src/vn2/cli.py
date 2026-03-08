@@ -490,6 +490,20 @@ def cmd_forecast(args):
             min_data_in_leaf=lgb_params.get('min_data_in_leaf', 20)
         )
     
+    def make_lightgbm_surd(surd_transforms_df=None):
+        from vn2.forecast.models.lightgbm_quantile import LightGBMQuantileForecaster
+        from vn2.forecast.surd_wrapper import SURDWrapper
+        lgb_params = cfg['models']['lightgbm_surd']
+        base = LightGBMQuantileForecaster(
+            forecast_config,
+            max_depth=lgb_params.get('max_depth', 6),
+            num_leaves=lgb_params.get('num_leaves', 31),
+            learning_rate=lgb_params.get('learning_rate', 0.05),
+            n_estimators=lgb_params.get('n_estimators', 100),
+            min_data_in_leaf=lgb_params.get('min_data_in_leaf', 20)
+        )
+        return SURDWrapper(base, transform='lookup', surd_transforms_df=surd_transforms_df)
+
     def make_ets():
         from vn2.forecast.models.ets import ETSForecaster
         ets_params = cfg['models']['ets']
@@ -664,6 +678,8 @@ def cmd_forecast(args):
             models['zinb'] = make_zinb
         if cfg['models']['lightgbm_quantile']['enabled']:
             models['lightgbm_quantile'] = make_lightgbm_quantile
+        if cfg['models'].get('lightgbm_surd', {}).get('enabled', False):
+            models['lightgbm_surd'] = lambda: make_lightgbm_surd(surd_df)
         if cfg['models']['ets']['enabled']:
             models['ets'] = make_ets
         if cfg['models']['slurp_bootstrap']['enabled']:
