@@ -38,9 +38,13 @@ def select_per_sku_from_folds(
     if cost_col not in df.columns:
         raise ValueError(f"Cost column {cost_col} not found. Available: {df.columns.tolist()}")
     
-    # Select last-N folds per SKU
-    df['_fold_rank'] = df.groupby(['store', 'product'])['fold_idx'].rank(method='first', ascending=False)
-    dfN = df[df['_fold_rank'] <= fold_window].copy()
+    # Select last-N folds per SKU: keep all rows whose fold_idx is among the N largest fold indices
+    # (so each model has up to N folds per SKU; previous logic kept N rows total per SKU so no model had N folds)
+    def _in_last_n_folds(x: pd.Series) -> pd.Series:
+        u = x.drop_duplicates().nlargest(fold_window)
+        return x.isin(u)
+    df['_in_last_n_folds'] = df.groupby(['store', 'product'])['fold_idx'].transform(_in_last_n_folds)
+    dfN = df[df['_in_last_n_folds']].copy()
     
     # Primary score: sum of cost across last-N folds
     agg = (dfN.groupby(['store', 'product', 'model_name'], as_index=False)[cost_col]

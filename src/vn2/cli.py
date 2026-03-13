@@ -345,9 +345,14 @@ def cmd_eval_models(args):
     # Import and run
     from vn2.analyze.model_eval import run_evaluation, aggregate_results
     
-    checkpoint_dir = Path('models/checkpoints')
-    # Use capped demand for SIP, original for baseline
-    demand_path = Path('data/processed/demand_imputed_capped.parquet') if args.use_sip_optimization else Path('data/processed/demand_imputed.parquet')
+    checkpoint_dir = Path(args.checkpoint_dir)
+    # Use capped demand for SIP when available, else fall back to imputed; baseline uses imputed
+    if args.use_sip_optimization:
+        demand_path = Path('data/processed/demand_imputed_capped.parquet')
+        if not demand_path.exists():
+            demand_path = Path('data/processed/demand_imputed.parquet')
+    else:
+        demand_path = Path('data/processed/demand_imputed.parquet')
     master_path = Path('data/processed/master.parquet')
     state_path = Path('data/interim/state.parquet')
     output_dir = Path('models/results')
@@ -1109,6 +1114,8 @@ def main():
     
     # eval-models (NEW)
     g = sp.add_parser("eval-models", help="Evaluate trained models with cost-based ranking")
+    g.add_argument("--checkpoint-dir", type=Path, default=Path("models/checkpoints_h3"),
+                   help="Checkpoint directory (must match backtest checkpoints for selector comparison)")
     g.add_argument("--holdout", type=int, default=8, help="Number of rolling-origin folds")
     g.add_argument("--n-sims", type=int, default=500, help="Monte Carlo samples")
     g.add_argument("--cpu-fraction", type=float, default=0.5, help="Fraction of CPU cores to use")
