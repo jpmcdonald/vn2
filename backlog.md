@@ -1,5 +1,18 @@
 ## Backlog / Next-Week Considerations
 
+### 0) Recommended next steps and document testing
+- **Recommended next steps (2026-03-12):** [docs/RECOMMENDED_NEXT_STEPS_2026-03-12.md](docs/RECOMMENDED_NEXT_STEPS_2026-03-12.md) — backtest-driven improvement steps, testable hypotheses (e.g. worse financial outcome with better point forecast, cost-based selector overfit, conformal at CF), and links to backlog.
+- Document testing: when changing selector logic, eval pipeline, or backtest harness, re-run the selector comparison (`scripts/compare_selector_metrics.py`) and update or regenerate the recommended-next-steps doc if the baseline or priorities change.
+- Add to this backlog item as new “golden” backtest scripts or hypothesis tests are added (e.g. holdout selector test, conformal backtest).
+
+### Sprint: Szabłowski comparison & hypothesis testing
+- **Full prompt:** [docs/VN2_BACKTESTING_SPRINT_PROMPT.md](docs/VN2_BACKTESTING_SPRINT_PROMPT.md)
+- Reproduce Szabłowski (arXiv:2601.18919v1) pipeline (global CatBoost point forecaster + φ-calibrated buffer) for backtesting; keep implementation in a separate area (e.g. `szablowski/`).
+- Build a unified comparison backtesting harness: shared simulation engine, rolling-origin backtest (e.g. last 18 weeks, 6 rounds), series-level cost and forecast metrics for both approaches; segment by demand scale, intermittency, CV, stockout frequency, seasonality strength.
+- Hypothesis tests (H1–H6): Jensen's Gap by demand regime; annualized scaling vs SURD; time-decayed weighting; his feature engineering in our LightGBM; φ stability vs density quantile; ensemble advantage in tails.
+- Feature-engineering revamp and calibration comparison (0.833 quantile coverage, reliability diagrams) as in the prompt.
+- **Not started:** planning and implementation deferred until explicitly requested.
+
 ### 1) Online improvement loop (bandits + calibration)
 - Contextual bandit for per-SKU model choice (arms: ZINB, QRF; optional SLURP/ETS)
   - Contexts: rate_bin, zero_bin, cv_bin, stockout_bin, recent CF calibration
