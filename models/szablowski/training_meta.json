@@ -35,61 +35,72 @@
     "store_id",
     "product_id"
   ],
-  "test_weeks": 18,
-  "val_frac": 0.1,
+  "val_strategy": "rolling_cv",
+  "test_weeks": 8,
+  "val_frac": null,
+  "cv_folds": 5,
   "n_trials": 100,
   "seed": 42,
   "horizons": {
     "1": {
       "horizon": 1,
+      "val_strategy": "rolling_cv",
+      "n_cv_folds": 5,
+      "best_cv_mae": 1.5099433081922349,
       "best_params": {
-        "learning_rate": 0.040336028689433326,
-        "depth": 10,
-        "l2_leaf_reg": 0.5864956976517474,
-        "bagging_temperature": 0.696137993371661,
-        "random_strength": 9.116698840471242,
-        "border_count": 159,
-        "min_data_in_leaf": 26
+        "learning_rate": 0.19177371649363983,
+        "depth": 6,
+        "l2_leaf_reg": 0.28800586600864664,
+        "bagging_temperature": 0.3715568024268865,
+        "random_strength": 9.79083516064177,
+        "border_count": 232,
+        "min_data_in_leaf": 47
       },
-      "val_mae_orig": 2.355815940626169,
+      "val_mae_orig": 1.9019126398908457,
       "n_trials": 100,
-      "train_rows": 68914,
-      "val_rows": 8853,
-      "best_iteration": 512
+      "train_rows": 79012,
+      "early_stop_rows": 4723,
+      "best_iteration": 3
     },
     "2": {
       "horizon": 2,
+      "val_strategy": "rolling_cv",
+      "n_cv_folds": 5,
+      "best_cv_mae": 1.5416803727388464,
       "best_params": {
-        "learning_rate": 0.01323209990103551,
-        "depth": 10,
-        "l2_leaf_reg": 0.012167088534091689,
-        "bagging_temperature": 0.13259993949110538,
-        "random_strength": 1.992465733867774,
-        "border_count": 58,
-        "min_data_in_leaf": 28
+        "learning_rate": 0.01781292993109667,
+        "depth": 7,
+        "l2_leaf_reg": 0.03314145627162038,
+        "bagging_temperature": 0.7139000992331448,
+        "random_strength": 5.361133667794496,
+        "border_count": 206,
+        "min_data_in_leaf": 13
       },
-      "val_mae_orig": 2.469558576629229,
+      "val_mae_orig": 1.6722166335634654,
       "n_trials": 100,
-      "train_rows": 69093,
-      "val_rows": 8853,
-      "best_iteration": 1633
+      "train_rows": 79192,
+      "early_stop_rows": 4727,
+      "best_iteration": 431
     },
     "3": {
       "horizon": 3,
+      "val_strategy": "rolling_cv",
+      "n_cv_folds": 5,
+      "best_cv_mae": 1.5926185360029639,
       "best_params": {
-        "learning_rate": 0.01685020823535703,
-        "depth": 10,
-        "l2_leaf_reg": 0.05491148665911214,
-        "bagging_temperature": 0.9211623479291419,
-        "random_strength": 1.1142006686495798,
-        "border_count": 109,
-        "min_data_in_leaf": 30
+        "learning_rate": 0.08524038728451629,
+        "depth": 6,
+        "l2_leaf_reg": 0.2177385481144126,
+        "bagging_temperature": 0.3849286302675329,
+        "random_strength": 3.677088937246432,
+        "border_count": 170,
+        "min_data_in_leaf": 25
       },
-      "val_mae_orig": 2.4197635822172243,
+      "val_mae_orig": 1.8319586348507158,
       "n_trials": 100,
-      "train_rows": 69258,
-      "val_rows": 8854,
-      "best_iteration": 1081
+      "train_rows": 79364,
+      "early_stop_rows": 4724,
+      "best_iteration": 458
     }
   }
 }
