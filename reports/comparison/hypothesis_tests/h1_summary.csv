@@ -1,0 +1,2 @@
+mean_gap,median_gap,std_gap,n_positive_gap,n_negative_gap,frac_large_gap,total_gap,total_abs_gap,gap_from_large_skus,frac_total_from_large
+0.814023372287145,0.0,5.9534372471967,278,266,0.7312186978297162,487.5999999999999,1312.8000000000002,494.0,1.0131255127153407

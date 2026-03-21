@@ -1,0 +1,3 @@
+policy,total_holding,total_shortage,total_cost,n_stockout_events
+sip,2874.0,1613.0,4487.0,495
+analytical,2449.6000000000004,2525.0,4974.6,859

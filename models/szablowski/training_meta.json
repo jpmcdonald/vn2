@@ -1,0 +1,95 @@
+{
+  "feature_cols": [
+    "delta_1",
+    "delta_5",
+    "ewm_10",
+    "ewm_5",
+    "fourier_cos_1",
+    "fourier_cos_2",
+    "fourier_cos_3",
+    "fourier_sin_1",
+    "fourier_sin_2",
+    "fourier_sin_3",
+    "lag_0",
+    "lag_1",
+    "lag_2",
+    "lag_3",
+    "lag_51",
+    "lag_52",
+    "lag_53",
+    "last_year_window_avg",
+    "riqr_13",
+    "rmean_13",
+    "rmean_3",
+    "rmean_5",
+    "rmedian_13",
+    "rmedian_3",
+    "rmedian_5",
+    "robust_zscore",
+    "rolling_nonzero_rate_12",
+    "rstd_13",
+    "seasonality_strength",
+    "slope_4w",
+    "time_since_spike",
+    "week_of_year",
+    "store_id",
+    "product_id"
+  ],
+  "test_weeks": 18,
+  "val_frac": 0.1,
+  "n_trials": 100,
+  "seed": 42,
+  "horizons": {
+    "1": {
+      "horizon": 1,
+      "best_params": {
+        "learning_rate": 0.040336028689433326,
+        "depth": 10,
+        "l2_leaf_reg": 0.5864956976517474,
+        "bagging_temperature": 0.696137993371661,
+        "random_strength": 9.116698840471242,
+        "border_count": 159,
+        "min_data_in_leaf": 26
+      },
+      "val_mae_orig": 2.355815940626169,
+      "n_trials": 100,
+      "train_rows": 68914,
+      "val_rows": 8853,
+      "best_iteration": 512
+    },
+    "2": {
+      "horizon": 2,
+      "best_params": {
+        "learning_rate": 0.01323209990103551,
+        "depth": 10,
+        "l2_leaf_reg": 0.012167088534091689,
+        "bagging_temperature": 0.13259993949110538,
+        "random_strength": 1.992465733867774,
+        "border_count": 58,
+        "min_data_in_leaf": 28
+      },
+      "val_mae_orig": 2.469558576629229,
+      "n_trials": 100,
+      "train_rows": 69093,
+      "val_rows": 8853,
+      "best_iteration": 1633
+    },
+    "3": {
+      "horizon": 3,
+      "best_params": {
+        "learning_rate": 0.01685020823535703,
+        "depth": 10,
+        "l2_leaf_reg": 0.05491148665911214,
+        "bagging_temperature": 0.9211623479291419,
+        "random_strength": 1.1142006686495798,
+        "border_count": 109,
+        "min_data_in_leaf": 30
+      },
+      "val_mae_orig": 2.4197635822172243,
+      "n_trials": 100,
+      "train_rows": 69258,
+      "val_rows": 8854,
+      "best_iteration": 1081
+    }
+  }
+}
