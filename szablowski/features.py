@@ -7,7 +7,7 @@ feature set: demand level, trend/momentum, seasonality, intermittency/spikes.
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional
+from typing import List, Tuple, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +402,75 @@ def fold_split(
     train = df[df[wc] < weeks_sorted[train_end_idx]]
     test = df[df[wc].isin(test_weeks)]
     return train, test
+
+
+def competition_split(
+    df: pd.DataFrame,
+    n_competition_weeks: int = 8,
+    prior_year_weeks: int = 8,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Split data into train-all, prior-year early-stop set, and competition test.
+
+    Returns (train_all, early_stop_prior_year, competition_test) where:
+    - competition_test = last ``n_competition_weeks`` weeks
+    - train_all = everything before the competition period
+    - early_stop_prior_year = same calendar window from the prior year,
+      used only as an eval set for CatBoost early stopping so the final
+      model trains on the most recent pre-competition data
+    """
+    wc = _week_col(df)
+    weeks_sorted = np.sort(df[wc].unique())
+    n = len(weeks_sorted)
+
+    comp_cutoff = weeks_sorted[max(0, n - n_competition_weeks)]
+    competition_test = df[df[wc] >= comp_cutoff]
+    pre_comp = df[df[wc] < comp_cutoff]
+
+    prior_year_end = comp_cutoff - pd.DateOffset(weeks=52)
+    prior_year_start = prior_year_end - pd.DateOffset(weeks=prior_year_weeks)
+
+    early_stop = pre_comp[
+        (pre_comp[wc] >= prior_year_start) & (pre_comp[wc] < prior_year_end)
+    ]
+    train_all = pre_comp[
+        ~((pre_comp[wc] >= prior_year_start) & (pre_comp[wc] < prior_year_end))
+    ]
+
+    return train_all, early_stop, competition_test
+
+
+def rolling_cv_folds(
+    df: pd.DataFrame,
+    n_folds: int = 5,
+    n_val_weeks: int = 3,
+    n_competition_weeks: int = 8,
+) -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
+    """Generate rolling-origin CV folds within the pre-competition period.
+
+    Folds work backwards from the competition start.  Each fold has
+    ``n_val_weeks`` validation weeks and trains on everything before.
+
+    Returns a list of (train_df, val_df) tuples, one per fold.
+    """
+    wc = _week_col(df)
+    weeks_sorted = np.sort(df[wc].unique())
+    n = len(weeks_sorted)
+
+    comp_start_idx = max(0, n - n_competition_weeks)
+
+    folds: List[Tuple[pd.DataFrame, pd.DataFrame]] = []
+    for k in range(n_folds):
+        val_end_idx = comp_start_idx - k * n_val_weeks
+        val_start_idx = val_end_idx - n_val_weeks
+        if val_start_idx < 52:
+            break
+
+        val_weeks = weeks_sorted[val_start_idx:val_end_idx]
+        train = df[df[wc] < weeks_sorted[val_start_idx]]
+        val = df[df[wc].isin(val_weeks)]
+        folds.append((train, val))
+
+    return folds
 
 
 # ---------------------------------------------------------------------------

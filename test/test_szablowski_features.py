@@ -6,15 +6,18 @@ import pytest
 
 from szablowski.features import (
     build_features,
+    competition_split,
     compute_effective_sales,
     compute_sample_weights,
     compute_scale_factors,
+    rolling_cv_folds,
     train_val_test_split,
     two_level_median_imputation,
     _lag_features,
     _seasonality_features,
     _spike_features,
 )
+from szablowski.predict import apply_dormancy_filter
 
 
 # ---------------------------------------------------------------------------
@@ -200,3 +203,158 @@ class TestTrainValTestSplit:
             train_weeks = set(train["week"].unique())
             test_weeks = set(test["week"].unique())
             assert train_weeks.isdisjoint(test_weeks)
+
+
+# ---------------------------------------------------------------------------
+# New split functions
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def longer_df():
+    """3 SKUs, 165 weeks mirroring the real data timeline."""
+    np.random.seed(42)
+    rows = []
+    start = pd.Timestamp("2021-04-12")
+    for store in [0]:
+        for product in [100, 200]:
+            for w in range(165):
+                week_date = start + pd.Timedelta(weeks=w)
+                demand = max(0, int(10 + np.random.normal(0, 3)))
+                rows.append({
+                    "Store": store,
+                    "Product": product,
+                    "week": week_date,
+                    "demand": demand,
+                    "in_stock": True,
+                })
+    return pd.DataFrame(rows)
+
+
+class TestCompetitionSplit:
+    def test_test_set_size(self, longer_df):
+        df, _ = build_features(longer_df)
+        _, _, comp_test = competition_split(df, n_competition_weeks=8)
+        n_test_weeks = comp_test["week"].nunique()
+        assert n_test_weeks == 8
+
+    def test_no_overlap(self, longer_df):
+        df, _ = build_features(longer_df)
+        train_all, early_stop, comp_test = competition_split(df, n_competition_weeks=8)
+        train_weeks = set(train_all["week"].unique())
+        es_weeks = set(early_stop["week"].unique())
+        test_weeks = set(comp_test["week"].unique())
+        assert train_weeks.isdisjoint(test_weeks)
+        assert es_weeks.isdisjoint(test_weeks)
+        assert train_weeks.isdisjoint(es_weeks)
+
+    def test_train_contains_recent_data(self, longer_df):
+        """Train set should include data right up to the competition start."""
+        df, _ = build_features(longer_df)
+        train_all, _, comp_test = competition_split(df, n_competition_weeks=8)
+        comp_start = comp_test["week"].min()
+        # The prior-year window is removed from train, but weeks between
+        # the prior-year window end and comp_start should be in train.
+        recent_in_train = train_all[train_all["week"] >= comp_start - pd.Timedelta(weeks=10)]
+        assert len(recent_in_train) > 0
+
+
+class TestRollingCVFolds:
+    def test_fold_count(self, longer_df):
+        df, _ = build_features(longer_df)
+        folds = rolling_cv_folds(df, n_folds=5, n_val_weeks=3,
+                                 n_competition_weeks=8)
+        assert len(folds) == 5
+
+    def test_no_future_leak(self, longer_df):
+        df, _ = build_features(longer_df)
+        folds = rolling_cv_folds(df, n_folds=3, n_val_weeks=3,
+                                 n_competition_weeks=8)
+        for train_fold, val_fold in folds:
+            assert train_fold["week"].max() < val_fold["week"].min()
+
+    def test_val_weeks_correct_size(self, longer_df):
+        df, _ = build_features(longer_df)
+        folds = rolling_cv_folds(df, n_folds=3, n_val_weeks=3,
+                                 n_competition_weeks=8)
+        for _, val_fold in folds:
+            assert val_fold["week"].nunique() == 3
+
+    def test_no_competition_data(self, longer_df):
+        df, _ = build_features(longer_df)
+        weeks_sorted = np.sort(df["week"].unique())
+        comp_start = weeks_sorted[-8]
+        folds = rolling_cv_folds(df, n_folds=3, n_val_weeks=3,
+                                 n_competition_weeks=8)
+        for train_fold, val_fold in folds:
+            assert train_fold["week"].max() < comp_start
+            assert val_fold["week"].max() < comp_start
+
+
+# ---------------------------------------------------------------------------
+# Dormancy filter
+# ---------------------------------------------------------------------------
+
+class TestDormancyFilter:
+    def test_dormant_sku_zeroed(self):
+        """SKU with all-zero recent demand should get forecasts zeroed."""
+        demand_df = pd.DataFrame({
+            "Store": [0] * 20,
+            "Product": [1] * 20,
+            "week": pd.date_range("2023-01-02", periods=20, freq="W-MON"),
+            "demand": [5] * 10 + [0] * 10,
+            "in_stock": [True] * 20,
+        })
+        forecasts_df = pd.DataFrame({
+            "Store": [0],
+            "Product": [1],
+            "week": [pd.Timestamp("2023-05-22")],
+            "h1": [10],
+            "h2": [12],
+            "h3": [8],
+        })
+        result = apply_dormancy_filter(forecasts_df, demand_df, lookback=10)
+        assert result["h1"].iloc[0] == 0
+        assert result["h2"].iloc[0] == 0
+        assert result["h3"].iloc[0] == 0
+        assert result["dormancy_filtered"].iloc[0] == True
+
+    def test_active_sku_untouched(self):
+        """SKU with recent non-zero demand should be unchanged."""
+        demand_df = pd.DataFrame({
+            "Store": [0] * 20,
+            "Product": [1] * 20,
+            "week": pd.date_range("2023-01-02", periods=20, freq="W-MON"),
+            "demand": [5] * 20,
+            "in_stock": [True] * 20,
+        })
+        forecasts_df = pd.DataFrame({
+            "Store": [0],
+            "Product": [1],
+            "week": [pd.Timestamp("2023-05-22")],
+            "h1": [10],
+            "h2": [12],
+            "h3": [8],
+        })
+        result = apply_dormancy_filter(forecasts_df, demand_df, lookback=10)
+        assert result["h1"].iloc[0] == 10
+        assert result["dormancy_filtered"].iloc[0] == False
+
+    def test_short_history_not_filtered(self):
+        """SKU with fewer weeks than lookback should not be filtered."""
+        demand_df = pd.DataFrame({
+            "Store": [0] * 5,
+            "Product": [1] * 5,
+            "week": pd.date_range("2023-01-02", periods=5, freq="W-MON"),
+            "demand": [0] * 5,
+            "in_stock": [True] * 5,
+        })
+        forecasts_df = pd.DataFrame({
+            "Store": [0],
+            "Product": [1],
+            "week": [pd.Timestamp("2023-02-06")],
+            "h1": [10],
+            "h2": [12],
+            "h3": [8],
+        })
+        result = apply_dormancy_filter(forecasts_df, demand_df, lookback=10)
+        assert result["h1"].iloc[0] == 10
