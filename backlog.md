@@ -45,6 +45,14 @@
 
 - **Not started:** blocked until CatBoost reproduction + harness land; see `docs/VN2_BACKTESTING_SPRINT_PROMPT.md` sprint extension section.
 
+### Retrain all models on clean pre-competition data and repeat full analysis
+
+- **Context:** The current `demand_long.parquet` includes competition-period actuals (Weeks 1-8, 2024-04-15 through 2024-06-03) appended via `scripts/build_demand_long.py`. The original SLURP/LightGBM/DeepAR models were trained before this data was added, so their training was clean. However, any future retraining on the current `demand_long.parquet` would leak competition data into those models. CatBoost (retrained v2) explicitly excludes competition weeks via `competition_split()`.
+- **Task:** Rebuild `demand_long.parquet` in two variants: (a) `demand_long_precomp.parquet` containing only pre-competition data (up to 2024-04-08), and (b) the full version for post-hoc analysis. Retrain all models (SLURP bootstrap, SLURP stockout-aware, LightGBM quantile, DeepAR, CatBoost) on the pre-competition-only dataset with consistent `holdout_weeks` ensuring no fold can see competition-period demand. Re-run the full evaluation pipeline, SIP/analytical comparison, and hypothesis tests on the retrained models to produce a true apples-to-apples comparison.
+- **Why it matters:** Without this, the policy comparison between SIP (using models trained on one data vintage) and analytical (using CatBoost retrained on another) is not on equal footing. A clean retrain ensures the cost comparison reflects model/policy differences, not data-availability differences.
+- **Estimated effort:** 4-8 hours (mostly wall-clock for retraining all models across 599 SKUs x 12 folds).
+- **Not started:** deferred to next weekend.
+
 ### 1) Online improvement loop (bandits + calibration)
 - Contextual bandit for per-SKU model choice (arms: ZINB, QRF; optional SLURP/ETS)
   - Contexts: rate_bin, zero_bin, cv_bin, stockout_bin, recent CF calibration
