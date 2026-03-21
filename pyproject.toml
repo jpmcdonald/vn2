@@ -29,6 +29,8 @@ dependencies = [
     "torch>=2.10.0",
     "gluonts>=0.16.2",
     "lightning>=2.6.1",
+    "catboost>=1.2",
+    "optuna>=3.5",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +44,8 @@ dev = [
 go = "vn2.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["vn2*", "szablowski*"]
 
 [tool.black]
 line-length = 100

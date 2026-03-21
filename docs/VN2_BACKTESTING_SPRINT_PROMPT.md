@@ -8,6 +8,8 @@ My approach uses density forecasting through an ensemble of models (SLURP Bootst
 
 The winning solution (Szabłowski, arXiv:2601.18919v1) used a fundamentally different architecture: a single global CatBoost model producing point forecasts for h=1,2,3, combined with a lightweight newsvendor-derived ordering policy. His uncertainty proxy is σ = φ√(D̂), where φ is a single scalar calibrated on the validation cost function. He beat the VN2 benchmark by 13.2% (3.763€ vs 4.334€).
 
+Szabłowski also published a post-competition extension replacing CatBoost with a custom TCN+FiLM+Seasonal Head deep learning forecaster and the analytical ordering policy with a PPO reinforcement learning agent. This achieved 17.3% cost reduction vs benchmark (3,582€) compared to the CatBoost solution's 13.2%. Summary at `docs/szablowski_dl_rl_deck_summary.md`. The neural architecture and RL policy comparison are scoped as a separate sprint extension in `backlog.md`, to be started after the CatBoost sprint completes.
+
 I need to backtest his approach against mine and test specific hypotheses about where and why the approaches diverge in performance. Reference paper is at `/mnt/user-data/uploads/2601_18919v1.pdf` if you need to consult it.
 
 ---
@@ -135,3 +137,36 @@ This is critical. I want to understand whether his forecasts were better *calibr
 - All hypothesis tests should produce both summary statistics and series-level detail. I want to see distributions, not just averages.
 - Save all backtest results to structured output (parquet or similar) for downstream analysis.
 - Prioritize getting H1 (Jensen's Gap by regime) and H5 (φ stability) running first — these are the most theoretically important.
+
+---
+
+## Sprint extension: Neural architecture & policy comparison (post-CatBoost)
+
+**Depends on:** Completed CatBoost reproduction (Stage 1–2 above), unified comparison harness and shared simulator, and availability of published code for the DL/RL pipeline where referenced.
+
+### Residual diagnostic
+
+After reproducing the CatBoost pipeline, characterize residual **ACF**, **heteroskedasticity**, and **tails**; compare to **SLURP** residuals; determine whether **external bootstrap** or **native distributional output** is the right integration path for combining point-global forecasts with uncertainty.
+
+### TCN distributional forecaster
+
+Adapt Szabłowski's **TCN + FiLM + Seasonal Head** (from DL/RL deck) with a **distributional output head** (NegBin or quantile); train under **CRPS**; evaluate as a new **SIP ensemble** arm.
+
+**Hypothesis:** Learned per-series seasonal modulation improves **density calibration at the critical fractile** for seasonal / high-volume SKU cohorts.
+
+### Three-way policy comparison (extends H1)
+
+On **shared forecasts** through the **shared simulator**, run:
+
+1. **Analytical** policy (φ√D̂ buffer as in Stage 2),
+2. **RL** policy (if code is available),
+3. **SIP density** policy (existing pipeline).
+
+Test whether **density propagation** captures value that **neither** the heuristic φ calibration nor RL recovers.
+
+### Implementation ordering
+
+1. Finish CatBoost sprint + harness + H1/H5 baseline.  
+2. Residual diagnostic → informs bootstrap vs native density path.  
+3. TCN distributional model → CRPS training → eval as ensemble member.  
+4. Three-way policy comparison once RL artifact (if any) is wired to the same simulator inputs.
