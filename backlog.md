@@ -5,6 +5,22 @@
 - Document testing: when changing selector logic, eval pipeline, or backtest harness, re-run the selector comparison (`scripts/compare_selector_metrics.py`) and update or regenerate the recommended-next-steps doc if the baseline or priorities change.
 - Add to this backlog item as new “golden” backtest scripts or hypothesis tests are added (e.g. holdout selector test, conformal backtest).
 
+### Initiative: EDA expansion, time series regimes, and regime-aware ensemble selection
+
+- **Roadmap:** [docs/EDA_REGIME_ENSEMBLE_SELECTOR_ROADMAP.md](docs/EDA_REGIME_ENSEMBLE_SELECTOR_ROADMAP.md) — expand EDA; derive static and rolling features from tests; classify series into regimes (rules, clusters, or pseudo-labels from historical best model); detect/predict regime changes; benchmark ensemble **selection policies** (baseline fold-cost + CF tie-break vs composite-only vs regime rules vs learned meta-router vs optional bandit) on shared checkpoints with portfolio cost and regime-sliced calibration.
+- **Workstreams:** (1) EDA v2 spec and optional new parquets / data contract updates; (2) canonical per-SKU (+ time-varying) feature table and joins from `summary_statistics*`, `stationarity_tests*`, `eda_extensions`; (3) regime catalog and labeling code; (4) change detection / drift features; (5) selector benchmark harness comparing methods without changing champion path until validated.
+- **Nomenclature:** disambiguate **SURD-transform** (variance-stabilizing pipeline) vs **SURD-information** (MI/entropy analyses) when specifying regime inputs.
+- **Dependencies:** overlaps conceptually with Szabłowski harness stratification, meta-router/cohort tooling, and clean pre-competition retrain; sequence EDA features after data vintage is decided for any retrain wave.
+- **Not started.**
+
+### Initiative: Entropy-based regime detection and outcome PMFs (H7–H12)
+
+- **Spec:** [docs/ENTROPY_REGIME_FRAMEWORK_VN2.md](docs/ENTROPY_REGIME_FRAMEWORK_VN2.md) — Shannon / Gaussian-reference entropy on demand and **outcome** (cost) PMFs; Jensen gap trajectories; sensitivity ratio; hypotheses H7–H12; links to scalar-proxy critique (pinball × W1 vs full outcome geometry).
+- **Code:** `src/vn2/analyze/entropy_metrics.py`, `src/vn2/analyze/entropy_regime.py`; `scripts/compute_entropy_regime_metrics.py`; `scripts/compute_entropy_regime_labels.py` (EDA join); `scripts/run_entropy_hypotheses_h7_h12.py` → `reports/entropy_hypotheses/`; eval: `model_eval.py --sip --entropy-metrics`.
+- **Tasks:** (1) entropy primitives; (2) persist outcome PMFs / scalars; (3) time series per SKU–fold; (4) regime prototype (stable/trending/volatile) + EDA join; (5) backtests H7–H12.
+- **Nomenclature:** **Shannon entropy on discrete PMFs** (this initiative) is distinct from **SURD–information** (MI / decomposition) in the EDA roadmap — both may feed regime features; label which signal in any selector experiment.
+- **Dependencies:** Align period index with `eval_folds` / sequential backtest; re-run after clean pre-competition retrain if data vintage changes.
+
 ### Sprint: Szabłowski comparison & hypothesis testing
 - **Full prompt:** [docs/VN2_BACKTESTING_SPRINT_PROMPT.md](docs/VN2_BACKTESTING_SPRINT_PROMPT.md)
 - Reproduce Szabłowski (arXiv:2601.18919v1) pipeline (global CatBoost point forecaster + φ-calibrated buffer) for backtesting; keep implementation in a separate area (e.g. `szablowski/`).
@@ -97,4 +113,6 @@
 - MPC-like 3–4 step SIP lookahead for high-impact SKUs
 
 
+- [ ] EDA expansion, regimes, regime-aware ensemble selector benchmark — [docs/EDA_REGIME_ENSEMBLE_SELECTOR_ROADMAP.md](docs/EDA_REGIME_ENSEMBLE_SELECTOR_ROADMAP.md)
+- [ ] Entropy / outcome-PMF regime framework (H7–H12) — [docs/ENTROPY_REGIME_FRAMEWORK_VN2.md](docs/ENTROPY_REGIME_FRAMEWORK_VN2.md)
 - [ ] Deep analysis: risk/payoff around critical fractile (p*=cu/(cu+co)), curvature near CF, breakpoint between EV vs CF-driven ordering; derive diagnostics and plots; per-SKU and portfolio views.

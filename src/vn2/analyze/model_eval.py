@@ -41,6 +41,11 @@ from vn2.analyze.sip_opt import (
     quantiles_to_pmf, convolve_inventory, optimize_order,
     compute_realized_metrics, Costs as SIPCosts
 )
+from vn2.analyze.entropy_metrics import (
+    full_week2_entropy_metrics,
+    empirical_demand_pmf_from_counts,
+    entropy_gap_model_vs_empirical,
+)
 
 
 def build_ensemble_from_folds(
@@ -695,7 +700,8 @@ def evaluate_one(
     skip_degenerate: bool = True,
     use_sip: bool = False,
     sip_grain: int = 1000,
-    state_df: Optional[pd.DataFrame] = None
+    state_df: Optional[pd.DataFrame] = None,
+    entropy_metrics: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Evaluate a single (model, SKU, fold) combination"""
     
@@ -804,6 +810,36 @@ def evaluate_one(
                 y_true, quantiles_df, initial_state, costs, sip_grain, exclude_week1=True
             )
             result.update(sip_metrics)
+
+            if entropy_metrics:
+                sip_c = SIPCosts(holding=costs.holding, shortage=costs.shortage)
+                qcols = quantiles_df.columns.values.astype(float)
+
+                def _q_row(step: int):
+                    if step in quantiles_df.index:
+                        return quantiles_df.loc[step].values
+                    fs = float(step)
+                    if fs in quantiles_df.index:
+                        return quantiles_df.loc[fs].values
+                    return None
+
+                q1 = _q_row(1)
+                q2 = _q_row(2)
+                if q1 is not None and q2 is not None:
+                    pmf1 = quantiles_to_pmf(q1, qcols, grain=sip_grain)
+                    pmf2 = quantiles_to_pmf(q2, qcols, grain=sip_grain)
+                    I0 = int(initial_state["on_hand"].iloc[0])
+                    Q1 = int(initial_state["intransit_1"].iloc[0])
+                    Q2 = int(initial_state["intransit_2"].iloc[0])
+                    em = full_week2_entropy_metrics(
+                        I0, Q1, Q2, pmf1, pmf2, sip_c, max_Q=sip_grain
+                    )
+                    result.update(em)
+                    y_hist = y_train.values.astype(float).ravel()
+                    emp = empirical_demand_pmf_from_counts(y_hist, sip_grain)
+                    result["kl_empirical_vs_model_h2"] = float(
+                        entropy_gap_model_vs_empirical(pmf2, emp)
+                    )
         
         # Also compute traditional cost metrics for comparison
         cost_metrics = compute_cost_metric(
@@ -869,7 +905,8 @@ def run_evaluation(
     out_suffix: str = "",
     use_sip: bool = False,
     sip_grain: int = 1000,
-    state_path: Optional[Path] = None
+    state_path: Optional[Path] = None,
+    entropy_metrics: bool = False,
 ):
     """Run full evaluation with batching and checkpointing"""
     
@@ -941,7 +978,7 @@ def run_evaluation(
             delayed(evaluate_one)(
                 task, df, master_df, checkpoint_dir, holdout_weeks,
                 costs, lt, n_sims, 42, realized_cost, skip_degenerate,
-                use_sip, sip_grain, state_df
+                use_sip, sip_grain, state_df, entropy_metrics,
             ) for task in batch_tasks
         )
         
@@ -1037,6 +1074,13 @@ def aggregate_results(input_path: Path, output_dir: Path, out_suffix: str = ""):
         'sip_service_level_w2': 'mean',
         'sip_fill_rate_w2': 'mean',
         'sip_regret_qty': 'sum',
+        # Entropy / outcome PMF (optional columns from --entropy-metrics)
+        'H_demand_h2': 'mean',
+        'entropy_gap_demand_h2': 'mean',
+        'mean_demand_h2': 'mean',
+        'H_outcome_w2': 'mean',
+        'jensen_gap_w2': 'mean',
+        'kl_empirical_vs_model_h2': 'mean',
         'fold_idx': 'count'  # Number of folds
     }
     
@@ -1134,6 +1178,13 @@ def main():
     parser.add_argument('--skip-degenerate', action='store_true', default=True, help='Skip degenerate forecasts (default: True)')
     parser.add_argument('--include-degenerate', dest='skip_degenerate', action='store_false', help='Include degenerate forecasts')
     parser.add_argument('--out-suffix', type=str, default='', help='Output file suffix (e.g., "v2")')
+    parser.add_argument('--sip', action='store_true', help='SIP week-2 cost metrics (needs --state-path)')
+    parser.add_argument('--state-path', type=Path, default=None, help='state.parquet for SIP initial inventory')
+    parser.add_argument(
+        '--entropy-metrics',
+        action='store_true',
+        help='With --sip, add H_demand, H_outcome, Jensen gap, KL vs empirical (see docs/ENTROPY_REGIME_FRAMEWORK_VN2.md)',
+    )
     
     # Cost parameters
     parser.add_argument('--holding-cost', type=float, default=0.2)
@@ -1190,7 +1241,11 @@ def main():
             review_weeks=args.review_weeks,
             realized_cost=args.realized_cost,
             skip_degenerate=args.skip_degenerate,
-            out_suffix=args.out_suffix
+            out_suffix=args.out_suffix,
+            use_sip=args.sip,
+            sip_grain=1000,
+            state_path=args.state_path,
+            entropy_metrics=args.entropy_metrics,
         )
         
         # Auto-aggregate if evaluation completed

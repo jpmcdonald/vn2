@@ -71,6 +71,7 @@ The TCN+FiLM+Seasonal Head architecture (see `docs/szablowski_dl_rl_deck_summary
 - **Jensen gap by cohort:** Slice Jensen delta (cost(point policy) − cost(SIP)) by rate, CV, zero ratio, stockout rate; see where density helps most and target calibration or model choice there.
 - **Deep dive at CF:** "Risk/payoff around critical fractile, curvature near CF, breakpoint between EV vs CF-driven ordering" (from backlog) as diagnostics; then test policies that adapt when curvature is flat vs steep.
 - **Three-way policy comparison:** Analytical (φ√D) vs RL (learned multiplier+buffer) vs SIP (density-based) on shared forecasts; disentangles whether cost differences come from forecast quality, policy expressiveness, or multi-period sequential effects. See sprint extension in `backlog.md`.
+- **Entropy / outcome-PMF regimes (H7–H12):** Outcome-side Shannon entropy, Gaussian entropy gap, and Jensen gap on cost PMFs vs demand-only scalars; batch `scripts/compute_entropy_regime_metrics.py`, hypotheses `scripts/run_entropy_hypotheses_h7_h12.py`. Full spec: `docs/ENTROPY_REGIME_FRAMEWORK_VN2.md`.
 
 ### 3.1 Szabłowski sprint chain (backtest roadmap)
 
