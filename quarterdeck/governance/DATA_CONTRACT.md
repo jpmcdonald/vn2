@@ -1,0 +1,103 @@
+# Data Contracts — VN2
+
+Paths below are **logical**; many generated artifacts are **gitignored** (see `.gitignore`). Contracts describe intended shape when files exist.
+
+---
+
+## 1. Raw competition CSVs
+
+| Field | Value |
+|-------|--------|
+| **Location** | `data/raw/` (and paths referenced in scripts, e.g. `Week 0 - … - Initial State.csv`, `Week N - … - Sales.csv`) |
+| **Schema** | Varies by file: Initial State includes Store, Product, inventory columns; Sales files include Store, Product, date columns per week. Exact headers normalized in loaders (e.g. strip whitespace in `full_L3_simulation.py` / bias scripts). |
+| **Ownership** | External competition data; copied into repo workspace. |
+| **Freshness** | Static for post-mortem analysis; historical snapshot. |
+| **Quality** | Stockouts imply censored demand; `in_stock` flags in raw demand pipelines where used by SLURP. |
+| **Immutability** | **Raw / read-only** for governance purposes — do not overwrite source-of-truth extracts without versioning. |
+| **Downstream** | `go ingest`, `full_L3_simulation`, `compute_bias_analysis`, `build_demand_long`, training pipelines. |
+
+---
+
+## 2. Interim / processed parquet
+
+| Field | Value |
+|-------|--------|
+| **Location** | `data/interim/` (e.g. `state.parquet`), `data/processed/` (e.g. `demand_long.parquet`, `demand_imputed.parquet`, `demand_imputed_capped.parquet`, `master.parquet`, `surd_transforms.parquet`) |
+| **Schema** | **Could not enumerate all columns from repo alone** — requires sample files or `docs/` references. Typically includes `store`, `product`, time/week columns, demand, optional `in_stock`. |
+| **Ownership** | Produced by ingestion, imputation, and feature pipelines in this repo. |
+| **Freshness** | Regenerated when upstream raw or scripts change. |
+| **Quality** | Winsorization/capping variants exist; imputation introduces model assumptions (see `docs/STOCKOUT_IMPUTATION.md`). |
+| **Immutability** | **Derived** — regenerable. |
+| **Downstream** | `go eval-models`, `go forecast`, analysis scripts. |
+
+---
+
+## 3. Model checkpoints (forecasts)
+
+| Field | Value |
+|-------|--------|
+| **Location** | `models/checkpoints/` or `models/checkpoints_h3/` (per `configs/forecast.yaml` and CLI defaults) |
+| **Schema** | Per-file pickle: dict with `quantiles` as `DataFrame`, rows = horizon (1,2,3), columns = quantile levels (0.01 … 0.99). |
+| **Ownership** | Produced by `go forecast` / training scripts. |
+| **Freshness** | Per training run; version with git commit or manifest. |
+| **Quality** | Degenerate forecasts may be skipped in eval (`skip_degenerate`). |
+| **Immutability** | **Derived**; large binaries gitignored. |
+| **Downstream** | `go eval-models`, `full_L3_simulation`, `compute_bias_analysis`, selector builders. |
+
+---
+
+## 4. Evaluation and results parquet
+
+| Field | Value |
+|-------|--------|
+| **Location** | `models/results/eval_folds*.parquet`, `eval_agg*.parquet`, `leaderboards*.parquet`, batch `*_part-*.parquet` |
+| 
+| **Ownership** | Produced by `run_evaluation` / aggregation in `model_eval.py`. |
+| **Freshness** | Per eval run. |
+| **Quality** | Partial batches possible if eval interrupted; consolidation step merges parts. |
+| **Immutability** | **Derived**. |
+| **Downstream** | Leaderboards, `model_selector`, `compare_selector_metrics`, ensemble scri**Schema** | Fold-level: `model_name`, `store`, `product`, `fold_idx`, metrics (`mae`, `crps`, `sip_realized_cost_w2`, …). Aggregates: per (store, product, model) summaries. |pts. |
+
+---
+
+## 5. Selector maps
+
+| Field | Value |
+|-------|--------|
+| **Location** | e.g. `reports/dynamic_selector/static_composite_selector.parquet`, `reports/selector_comparison/cost_based_selector.parquet`, `models/results/selector_map*.parquet` |
+| **Schema** | At minimum `store`, `product`, `model_name` (see `full_L3_simulation.load_selector_map`). |
+| **Ownership** | Built by `build_dynamic_selector.py`, `compare_selector_metrics.py`, or ensemble pipeline. |
+| **Freshness** | Per analysis run. |
+| **Immutability** | **Derived**; `reports/` often gitignored. |
+| **Downstream** | `full_L3_simulation`, submission / order generators. |
+
+---
+
+## 6. YAML configuration
+
+| Field | Value |
+|-------|--------|
+| **Location** | `configs/*.yaml`, `configs/backtests/*.yaml` |
+| **Schema** | Project-specific: `paths`, `models`, `quantiles`, `horizon`, `holdout_weeks`, backtest harness keys. |
+| **Ownership** | Maintained in repo. |
+| **Freshness** | Version-controlled. |
+| **Immutability** | Source — edit with review. |
+| **Downstream** | `go forecast`, `go simulate`, harness runners. |
+
+---
+
+## 7. Submissions CSV
+
+| Field | Value |
+|-------|--------|
+| **Location** | `data/submissions/*.csv` (gitignored pattern `*.csv` at repo root level may still apply — verify layout) |
+| **Schema** | Competition submission format (Store, Product, order columns). |
+| **Ownership** | Generated by submit / order scripts. |
+| **Downstream** | External upload; comparison scripts (e.g. `compare_week1_orders.py`). |
+
+---
+
+## Cross-references
+
+- Assumptions on paths and keys: `ASSUMPTION_REGISTRY.md` ASM-004–006, ASM-010–012, ASM-015–019.
+- Entrypoints producing/consuming: `MANIFEST.yaml`, `RUNBOOK.md`.

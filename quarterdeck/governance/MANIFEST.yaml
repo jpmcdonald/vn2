@@ -1,0 +1,103 @@
+# Quarterdeck manifest — blessed entrypoints and utilities (VN2)
+# Parsed from workspace; extend when adding production-critical scripts.
+
+meta:
+  project: vn2
+  cli_entrypoint: go
+  cli_module: vn2.cli:main
+
+dependencies:
+  python: ">=3.11"
+  packages:
+    - "pandas>=2.2,<3"
+    - "numpy>=1.26,<3"
+    - "scipy>=1.11,<2"
+    - "statsmodels>=0.14,<1"
+    - "scikit-learn>=1.4,<2"
+    - "pydantic>=2.6,<3"
+    - "pyyaml>=6.0,<7"
+    - "rich>=13.7,<14"
+    - "mlflow>=2.14,<3"
+    - "plotly>=5.22,<6"
+    - "tqdm>=4.67.3"
+    - "lightgbm>=4.6.0"
+    - "tabulate>=0.10.0"
+    - "torch>=2.10.0"
+    - "gluonts>=0.16.2"
+    - "lightning>=2.6.1"
+  dev_optional:
+    - "pytest>=8.0,<9"
+    - "black>=24.0,<25"
+    - "ruff>=0.3,<1"
+
+entrypoints:
+  - command: "uv run go ingest --raw <path> --out <path>"
+    description: "Ingest and clean raw CSV data to interim layout."
+    produces: "Cleaned interim datasets"
+  - command: "uv run go impute --config configs/uncertainty.yaml"
+    description: "Impute stockout-censored demand (quantile SIP replacement)."
+    produces: "Imputed demand artifacts under processed/"
+  - command: "uv run go forecast --config configs/forecast.yaml"
+    description: "Train density forecast models and write checkpoints."
+    produces: "Pickle checkpoints under models/checkpoints*"
+  - command: "uv run go eval-models --checkpoint-dir <dir> [--use-sip-optimization] [--out-suffix <s>]"
+    description: "Rolling-fold evaluation with optional SIP metrics; writes eval_folds parquet."
+    produces: "models/results/eval_folds_*.parquet, leaderboards, eval_agg"
+  - command: "uv run go simulate --config configs/base.yaml"
+    description: "Base-stock simulation from config."
+    produces: "Simulation outputs per config"
+  - command: "uv run go optimize-mc --config configs/uncertainty.yaml"
+    description: "Monte Carlo optimization over SIP."
+    produces: "Optimized order CSV / artifacts per config"
+  - command: "uv run go submit"
+    description: "Build competition submission file."
+    produces: "Submission CSV"
+  - command: "uv run go w8-eval"
+    description: "8-fold per-SKU cost evaluation with Q=0 fallback."
+    produces: "Parquet outputs in models/results per run_tag"
+  - command: "uv run go ensemble-eval --stage selector|cohort|decision"
+    description: "Build/evaluate ensemble from existing eval_folds."
+    produces: "Ensemble eval parquet and leaderboards"
+  - command: "uv run python scripts/full_L3_simulation.py [--selector-map ...] [--max-weeks 8] [--service-level 0.833]"
+    description: "Full L=3 sequential simulation with optional selector map."
+    produces: "reports/backtest_L3 or --output-dir CSV/parquet"
+  - command: "uv run python scripts/compare_selector_metrics.py"
+    description: "Composite vs cost-based selector maps and paired backtests."
+    produces: "reports/selector_comparison/ (gitignored parent)"
+  - command: "uv run python scripts/build_dynamic_selector.py"
+    description: "Build static/weekly selectors from per_sku_week_detail."
+    produces: "reports/dynamic_selector/*.parquet"
+  - command: "uv run python scripts/compute_bias_analysis.py"
+    description: "Bias, CRPS, Wasserstein, per_sku_week_detail for selector inputs."
+    produces: "reports/bias/*.parquet"
+  - command: "pytest test/"
+    description: "Unit tests."
+    produces: "Console report"
+
+utilities:
+  - import: "vn2.analyze.model_eval"
+    description: "run_evaluation, aggregate_results, evaluate_one, compute_cost_metric"
+  - import: "vn2.analyze.model_selector"
+    description: "select_per_sku_from_folds for cost/SIP-based selector maps"
+  - import: "vn2.analyze.sip_opt"
+    description: "Quantiles to PMF, SIP optimization helpers"
+  - import: "vn2.data"
+    description: "load_initial_state, load_sales, load_master, submission helpers"
+  - import: "vn2.sim"
+    description: "Simulator, Costs, LeadTime"
+  - import: "vn2.forecast.pipeline"
+    description: "ForecastPipeline orchestration"
+  - import: "vn2.cli"
+    description: "All go subcommand handlers"
+
+forbidden_patterns:
+  - "Forking full L3 inventory dynamics in a new script instead of calling or importing shared simulation/eval paths — risks divergent cost definitions."
+  - "Hardcoding absolute paths in new code without config — forecast.yaml already uses machine-specific paths; do not spread more."
+  - "Editing raw competition CSVs in data/raw in place — treat as immutable source extracts."
+  - "Bypassing eval_folds aggregation and manually editing leaderboards parquet."
+  - "Using service-level-adjusted costs for evaluation totals when comparing policies (known past bug class — see revised paper)."
+
+notes:
+  - "scripts/ contains 60+ one-off analysis scripts; only frequently used pipelines are listed under entrypoints. New critical paths must be registered here per POLICY.md."
+  - "joblib.Parallel and subprocess-heavy scripts may fail in restricted CI unless n_jobs is set explicitly."
+  - "Forecast model families, canonical model_name IDs, and checkpoint schema: see governance/MODEL_ONTOLOGY.md"
