@@ -46,6 +46,7 @@ from vn2.analyze.entropy_metrics import (
     empirical_demand_pmf_from_counts,
     entropy_gap_model_vs_empirical,
 )
+from vn2.analyze.state_resolve import load_state_parquet, resolve_sip_state_row
 
 
 def build_ensemble_from_folds(
@@ -641,8 +642,18 @@ def compute_sip_cost_metric(
     # Extract quantile levels and values
     quantile_levels = quantiles_df.columns.values
     
-    # Build PMFs for h=1 and h=2
-    if 1 not in quantiles_df.index or 2 not in quantiles_df.index:
+    # Build PMFs for h=1 and h=2 (index may be int or float, match _q_step / entropy script)
+    def _q_row(step: int):
+        if step in quantiles_df.index:
+            return quantiles_df.loc[step].values
+        fs = float(step)
+        if fs in quantiles_df.index:
+            return quantiles_df.loc[fs].values
+        return None
+
+    q1_vals = _q_row(1)
+    q2_vals = _q_row(2)
+    if q1_vals is None or q2_vals is None:
         return {
             'sip_order_qty': None,
             'sip_expected_cost': None,
@@ -653,9 +664,6 @@ def compute_sip_cost_metric(
             'sip_fill_rate_w2': None,
             'sip_regret_qty': None
         }
-    
-    q1_vals = quantiles_df.loc[1].values
-    q2_vals = quantiles_df.loc[2].values
     
     pmf_D1 = quantiles_to_pmf(q1_vals, quantile_levels, grain=sip_grain)
     pmf_D2 = quantiles_to_pmf(q2_vals, quantile_levels, grain=sip_grain)
@@ -776,26 +784,17 @@ def evaluate_one(
         
         # Cost metrics - determine initial state
         if use_sip and state_df is not None:
-            # Use actual initial state from state.parquet
-            # State is indexed by (store, product, week)
-            # For fold_idx, we need the state at the origin of that fold
-            fold_origin_week = task.fold_idx
-            state_key = (task.store, task.product, fold_origin_week)
-            
-            if state_key in state_df.index:
-                state_row = state_df.loc[state_key]
-                initial_state = pd.DataFrame({
-                    'on_hand': [state_row['on_hand']],
-                    'intransit_1': [state_row.get('intransit_1', 0)],
-                    'intransit_2': [state_row.get('intransit_2', 0)]
-                }, index=[(task.store, task.product)])
-            else:
-                # Fallback to zero state if not found
-                initial_state = pd.DataFrame({
-                    'on_hand': [0],
-                    'intransit_1': [0],
-                    'intransit_2': [0]
-                }, index=[(task.store, task.product)])
+            i0, q1, q2 = resolve_sip_state_row(
+                state_df, task.store, task.product, task.fold_idx
+            )
+            initial_state = pd.DataFrame(
+                {
+                    "on_hand": [i0],
+                    "intransit_1": [q1],
+                    "intransit_2": [q2],
+                },
+                index=[(task.store, task.product)],
+            )
         else:
             # Zero inventory baseline for non-SIP evaluation
             initial_state = pd.DataFrame({
@@ -922,13 +921,8 @@ def run_evaluation(
     # Load state data if using SIP
     state_df = None
     if use_sip and state_path and state_path.exists():
-        print(f"📦 Loading initial state from {state_path}...")
-        state_df = pd.read_parquet(state_path)
-        # Ensure proper indexing for fast lookup
-        if not isinstance(state_df.index, pd.MultiIndex):
-            # Assume columns are store, product, week
-            if 'store' in state_df.columns and 'product' in state_df.columns:
-                state_df = state_df.set_index(['store', 'product', 'week'])
+        print(f"📦 Loading state from {state_path}...")
+        state_df = load_state_parquet(state_path)
     
     # Setup costs
     if costs_dict is None:
@@ -1179,7 +1173,12 @@ def main():
     parser.add_argument('--include-degenerate', dest='skip_degenerate', action='store_false', help='Include degenerate forecasts')
     parser.add_argument('--out-suffix', type=str, default='', help='Output file suffix (e.g., "v2")')
     parser.add_argument('--sip', action='store_true', help='SIP week-2 cost metrics (needs --state-path)')
-    parser.add_argument('--state-path', type=Path, default=None, help='state.parquet for SIP initial inventory')
+    parser.add_argument(
+        '--state-path',
+        type=Path,
+        default=None,
+        help='state_panel.parquet (per fold) or state.parquet (week 0); default None',
+    )
     parser.add_argument(
         '--entropy-metrics',
         action='store_true',

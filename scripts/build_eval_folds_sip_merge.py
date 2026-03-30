@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Batch-compute entropy / outcome-PMF metrics per (model, SKU, fold).
+Build a minimal eval_folds-style parquet for merging into entropy hypotheses (H11/H12).
 
-Writes a parquet suitable for Task 3 time series and H7–H12 analyses.
-Can merge with full eval_folds via keys (model_name, store, product, fold_idx).
+Computes only SIP week-2 realized cost and pinball loss per (model, store, product, fold_idx),
+using the same state panel + checkpoints as compute_entropy_regime_metrics.py — without
+Monte Carlo inventory simulation or shape metrics (much faster than full model_eval).
 
 Usage:
-  uv run python scripts/compute_entropy_regime_metrics.py \\
+  uv run python scripts/build_eval_folds_sip_merge.py \\
     --checkpoint-dir models/checkpoints \\
     --demand-path data/processed/demand_imputed.parquet \\
     --state-path data/processed/state_panel.parquet \\
-    --output models/results/entropy_regime_metrics.parquet
+    --output models/results/eval_folds_sip_merge.parquet
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
@@ -29,28 +29,14 @@ if str(ROOT) not in sys.path:
 
 from vn2.analyze.model_eval import (  # noqa: E402
     EvalTask,
-    ProgressTracker,
+    compute_sip_cost_metric,
     is_degenerate_forecast,
     load_checkpoint,
 )
 from vn2.analyze.state_resolve import load_state_parquet, resolve_sip_state_row  # noqa: E402
-from vn2.analyze.sip_opt import Costs as SIPCosts, quantiles_to_pmf
-from vn2.analyze.entropy_metrics import (
-    full_week2_entropy_metrics,
-    empirical_demand_pmf_from_counts,
-    entropy_gap_model_vs_empirical,
-)
-from vn2.analyze.entropy_regime import add_entropy_regime_labels, add_sensitivity_ratio_column
+from vn2.forecast.evaluation import average_pinball_loss  # noqa: E402
 from vn2.forecast.features import prepare_train_test_split  # noqa: E402
-
-
-def _q_step(qdf: pd.DataFrame, step: int) -> np.ndarray | None:
-    if step in qdf.index:
-        return qdf.loc[step].values
-    fs = float(step)
-    if fs in qdf.index:
-        return qdf.loc[fs].values
-    return None
+from vn2.sim import Costs  # noqa: E402
 
 
 def _one_row(
@@ -59,8 +45,8 @@ def _one_row(
     master_df: pd.DataFrame | None,
     checkpoint_dir: Path,
     holdout_weeks: int,
-    sip_costs: SIPCosts,
-    state_df: pd.DataFrame | None,
+    state_df,
+    costs: Costs,
     sip_grain: int,
 ) -> dict | None:
     path = checkpoint_dir / task.model_name / f"{task.store}_{task.product}" / f"fold_{task.fold_idx}.pkl"
@@ -80,42 +66,32 @@ def _one_row(
         )
     except Exception:
         return None
-    if y_train is None or y_test is None:
+    if y_train is None or y_test is None or len(y_test) < 2:
         return None
-    r1 = _q_step(qdf, 1)
-    r2 = _q_step(qdf, 2)
-    if r1 is None or r2 is None:
+    y_true = y_test.values.astype(float).ravel()
+    i0, q1, q2 = resolve_sip_state_row(state_df, task.store, task.product, task.fold_idx)
+    initial_state = pd.DataFrame(
+        {"on_hand": [i0], "intransit_1": [q1], "intransit_2": [q2]},
+        index=[(task.store, task.product)],
+    )
+    sip = compute_sip_cost_metric(
+        y_true, qdf, initial_state, costs, sip_grain, exclude_week1=True
+    )
+    if sip.get("sip_realized_cost_w2") is None:
         return None
-
-    qcols = qdf.columns.values.astype(float)
-    pmf1 = quantiles_to_pmf(r1, qcols, grain=sip_grain)
-    pmf2 = quantiles_to_pmf(r2, qcols, grain=sip_grain)
-
-    if state_df is not None:
-        I0, Q1, Q2 = resolve_sip_state_row(
-            state_df, task.store, task.product, task.fold_idx
-        )
-    else:
-        I0, Q1, Q2 = 0, 0, 0
-
-    em = full_week2_entropy_metrics(I0, Q1, Q2, pmf1, pmf2, sip_costs, max_Q=sip_grain)
-    y_hist = y_train.values.astype(float).ravel()
-    emp = empirical_demand_pmf_from_counts(y_hist, sip_grain)
-    kl = float(entropy_gap_model_vs_empirical(pmf2, emp))
-
-    row = {
+    pinball = float(average_pinball_loss(y_true, qdf))
+    return {
         "model_name": task.model_name,
         "store": task.store,
         "product": task.product,
         "fold_idx": task.fold_idx,
-        "kl_empirical_vs_model_h2": kl,
-        **em,
+        "sip_realized_cost_w2": sip["sip_realized_cost_w2"],
+        "pinball_loss": pinball,
     }
-    return row
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Compute entropy regime metrics batch")
+    p = argparse.ArgumentParser(description="Minimal SIP columns for entropy H11/H12 merge")
     p.add_argument("--checkpoint-dir", type=Path, default=Path("models/checkpoints"))
     p.add_argument("--demand-path", type=Path, default=Path("data/processed/demand_imputed.parquet"))
     p.add_argument("--master-path", type=Path, default=Path("data/processed/master.parquet"))
@@ -123,33 +99,27 @@ def main() -> None:
         "--state-path",
         type=Path,
         default=Path("data/processed/state_panel.parquet"),
-        help="state_panel.parquet (fold-specific) or state.parquet (week-0 only)",
     )
-    p.add_argument("--output", type=Path, default=Path("models/results/entropy_regime_metrics.parquet"))
+    p.add_argument("--output", type=Path, default=Path("models/results/eval_folds_sip_merge.parquet"))
     p.add_argument("--holdout", type=int, default=8)
-    p.add_argument("--sip-grain", type=int, default=1000)
     p.add_argument("--holding", type=float, default=0.2)
     p.add_argument("--shortage", type=float, default=1.0)
+    p.add_argument("--sip-grain", type=int, default=1000)
     p.add_argument("--n-jobs", type=int, default=4)
-    p.add_argument("--models", type=str, default="", help="Comma-separated model names; default all")
-    p.add_argument("--limit", type=int, default=0, help="Max tasks (debug)")
-    p.add_argument("--no-regime-labels", action="store_true", help="Skip sensitivity + regime columns")
+    p.add_argument("--limit", type=int, default=0)
     args = p.parse_args()
 
     df = pd.read_parquet(args.demand_path)
     master_df = pd.read_parquet(args.master_path) if args.master_path.exists() else None
-
     state_df = load_state_parquet(args.state_path) if args.state_path.exists() else None
+    if state_df is None:
+        print("ERROR: state parquet missing or empty; need fold-specific state for SIP cost.")
+        sys.exit(1)
 
-    sip_c = SIPCosts(holding=args.holding, shortage=args.shortage)
-    progress_path = args.output.parent / f"{args.output.stem}.progress.json"
-    progress = ProgressTracker(progress_path)
-    tasks = []
-    model_filter = [m.strip() for m in args.models.split(",") if m.strip()]
+    costs = Costs(holding=args.holding, shortage=args.shortage)
+    tasks: list[EvalTask] = []
     for model_dir in sorted(args.checkpoint_dir.iterdir()):
         if not model_dir.is_dir():
-            continue
-        if model_filter and model_dir.name not in model_filter:
             continue
         for sku_dir in model_dir.iterdir():
             if not sku_dir.is_dir():
@@ -159,36 +129,22 @@ def main() -> None:
             except ValueError:
                 continue
             for fold_idx in range(args.holdout):
-                t = EvalTask(model_dir.name, store, product, fold_idx)
-                if not progress.is_complete(t):
-                    tasks.append(t)
-
+                tasks.append(EvalTask(model_dir.name, store, product, fold_idx))
     if args.limit > 0:
         tasks = tasks[: args.limit]
-
-    print(f"Tasks to run: {len(tasks)}")
+    print(f"Tasks: {len(tasks)}")
 
     rows = Parallel(n_jobs=args.n_jobs, backend="loky", verbose=5)(
-        delayed(_one_row)(t, df, master_df, args.checkpoint_dir, args.holdout, sip_c, state_df, args.sip_grain)
+        delayed(_one_row)(t, df, master_df, args.checkpoint_dir, args.holdout, state_df, costs, args.sip_grain)
         for t in tasks
     )
     valid = [r for r in rows if r is not None]
-    for t, r in zip(tasks, rows):
-        if r is not None:
-            progress.mark_complete(t)
-    progress.save()
-
     out = pd.DataFrame(valid)
     if out.empty:
         print("No rows computed.")
-        return
-
-    if not args.no_regime_labels:
-        out = add_sensitivity_ratio_column(out)
-        out = add_entropy_regime_labels(out)
-
+        sys.exit(1)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(args.output)
+    out.to_parquet(args.output, index=False)
     print(f"Wrote {len(out)} rows to {args.output}")
 
 

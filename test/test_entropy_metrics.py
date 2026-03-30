@@ -20,11 +20,13 @@ def test_normalize_and_entropy_uniform():
     assert abs(mu - 2.0) < 1e-10
 
 
-def test_entropy_gap_deterministic():
+def test_entropy_gap_peaked_vs_gaussian():
+    # Need positive variance so Gaussian differential entropy is defined
     p = np.zeros(11)
-    p[5] = 1.0
+    p[4] = 0.5
+    p[6] = 0.5
     g = entropy_gap_gaussian(p)
-    assert g > 0
+    assert np.isfinite(g) and g > 0
 
 
 def test_joint_outcome_pmf_sums_to_one():
